@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Elm Origin — Learn. Connect. Evolve.</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,300;1,9..144,400;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+
+<link rel="stylesheet" href="styles.css"/>
+
+<style>
+  html, body { margin: 0; padding: 0; background: var(--bg-base); color: var(--text-primary); font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  #root { min-height: 100vh; }
+</style>
+<script>
+  (function() {
+    var saved = localStorage.getItem('elmorigin:theme');
+    if (saved === 'dark') document.documentElement.dataset.theme = 'dark';
+    var rm = localStorage.getItem('elmorigin:reduce-motion');
+    if (rm === 'true') document.documentElement.dataset.reduceMotion = 'true';
+  })();
+</script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="src/primitives.jsx"></script>
+  <script type="text/babel" src="src/shell.jsx"></script>
+  <script type="text/babel" src="src/landing.jsx"></script>
+  <script type="text/babel" src="src/auth.jsx"></script>
+  <script type="text/babel" src="src/home.jsx"></script>
+  <script type="text/babel" src="src/mentors.jsx"></script>
+  <script type="text/babel" src="src/productivity.jsx"></script>
+  <script type="text/babel" src="src/interviews.jsx"></script>
+  <script type="text/babel" src="src/misc.jsx"></script>
+  <script type="text/babel" src="src/rooms-extra.jsx"></script>
+  <script type="text/babel" src="src/mentor-onboarding.jsx"></script>
+  <script type="text/babel" src="src/student-extra.jsx"></script>
+  <script type="text/babel" src="src/mentor-app.jsx"></script>
+  <script type="text/babel" src="src/mentor-app-2.jsx"></script>
+  <script type="text/babel" src="src/utility.jsx"></script>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // ── Quotas ──
+    const PEER_INTERVIEW_QUOTA   = { Free: 1, Pro: 3, Elite: Infinity };
+    const GROUP_INTERVIEW_QUOTA  = { Free: 1, Pro: 3, Elite: Infinity };
+    const COLLAB_ROOM_QUOTA      = { Free: 2, Pro: 5, Elite: Infinity };
+    window.PEER_INTERVIEW_QUOTA = PEER_INTERVIEW_QUOTA;
+    window.GROUP_INTERVIEW_QUOTA = GROUP_INTERVIEW_QUOTA;
+    window.COLLAB_ROOM_QUOTA = COLLAB_ROOM_QUOTA;
+    window.peerInterviewsLeft  = (u) => PEER_INTERVIEW_QUOTA[u.plan]  - (u.peerInterviewsToday  || 0);
+    window.groupInterviewsLeft = (u) => GROUP_INTERVIEW_QUOTA[u.plan] - (u.groupInterviewsToday || 0);
+    window.collabRoomsLeft     = (u) => COLLAB_ROOM_QUOTA[u.plan]     - (u.collabRoomsCreatedToday || 0);
+    window.canQueuePeerInterview  = (u) => window.peerInterviewsLeft(u)  > 0;
+    window.canStartGroupInterview = (u) => window.groupInterviewsLeft(u) > 0;
+    window.canCreateCollabRoom    = (u) => window.collabRoomsLeft(u)     > 0;
+
+    const INITIAL_USER = {
+      name: 'Arjun Patel', plan: 'Free', streak: 15,
+      peerInterviewsToday: 0,
+      groupInterviewsToday: 0,
+      collabRoomsCreatedToday: 0,
+    };
+
+    function useTheme() {
+      const [theme, setTheme] = useState(() => localStorage.getItem('elmorigin:theme') || 'light');
+      useEffect(() => {
+        document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : '';
+        localStorage.setItem('elmorigin:theme', theme);
+      }, [theme]);
+      return [theme, setTheme];
+    }
+    window.useTheme = useTheme;
+
+    // ── Public routes (no auth required) ──
+    const PUBLIC_ROUTES = new Set(['landing', 'login', 'signup', 'forgot-password', 'reset-password', 'mentor-apply', 'mentor-setup', '404', '500', 'maintenance', 'session-expired']);
+    // ── Mentor-only routes ──
+    const MENTOR_ROUTES = new Set([
+      'mentor-dashboard', 'mentor-bookings', 'mentor-availability',
+      'mentor-earnings', 'mentor-reviews', 'mentor-profile-edit',
+      'mentor-settings', 'mentor-live'
+    ]);
+    // ── Routes that render inside the app shell (sidebar + topbar) ──
+    const SHELL_ROUTES = new Set([
+      'home', 'rooms', 'mentors', 'productivity', 'interviews',
+      'community', 'notifications', 'pricing', 'mentor-profile',
+      'booking', 'my-sessions', 'settings', 'profile',
+      'mentor-dashboard', 'mentor-bookings', 'mentor-availability',
+      'mentor-earnings', 'mentor-reviews', 'mentor-profile-edit', 'mentor-settings'
+    ]);
+
+    function ComingSoon({ title, navigate }) {
+      return (
+        <div className="page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 68px)', textAlign: 'center' }}>
+          <div style={{ width: 64, height: 64, borderRadius: 16, background: 'var(--brand-50)', color: 'var(--brand-600)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+            <Icon name="sparkles" size={28}/>
+          </div>
+          <h2 style={{ fontFamily: 'Fraunces', fontWeight: 600, fontSize: 28, marginBottom: 8 }}>{title}</h2>
+          <p style={{ color: 'var(--text-tertiary)', fontSize: 14, marginBottom: 24, maxWidth: 380 }}>Coming in the next chunk.</p>
+          <button onClick={() => navigate('home')} className="btn btn-ghost btn-sm">← Back to Home</button>
+        </div>
+      );
+    }
+
+    function App() {
+      const [route, setRoute] = useState(() => localStorage.getItem('elmorigin:route') || 'landing');
+      const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem('elmorigin:loggedIn') === 'true');
+      const [isMentor, setIsMentor] = useState(() => localStorage.getItem('elmorigin:isMentor') === 'true');
+      const [theme, setTheme] = useTheme();
+      const [mentorMode, setMentorMode] = useState(null); // null | 'ai' | 'human'
+      const [bookingMentor, setBookingMentor] = useState(null);
+      const [searchOpen, setSearchOpen] = useState(false);
+      const [activeRoom, setActiveRoom] = useState(null);
+      const [activeMentor, setActiveMentor] = useState(null);
+      const [gateVariant, setGateVariant] = useState(null);
+      const [bookingsTab, setBookingsTab] = useState(null);
+      const [gateContext, setGateContext] = useState(null);
+      const [activeInterview, setActiveInterview] = useState(null);
+      const [user, setUser] = useState(() => {
+        try { const saved = JSON.parse(localStorage.getItem('elmorigin:user') || 'null'); return saved ? { ...INITIAL_USER, ...saved } : INITIAL_USER; }
+        catch { return INITIAL_USER; }
+      });
+      const updateUser = React.useCallback((patch) => {
+        setUser(u => {
+          const next = typeof patch === 'function' ? patch(u) : { ...u, ...patch };
+          try { localStorage.setItem('elmorigin:user', JSON.stringify(next)); } catch {}
+          window.USER = next;
+          return next;
+        });
+      }, []);
+      useEffect(() => { window.USER = user; window.updateUser = updateUser; }, [user, updateUser]);
+
+      // Daily reset of usage counters at midnight (local)
+      useEffect(() => {
+        const today = new Date().toISOString().slice(0, 10);
+        if (localStorage.getItem('elmorigin:lastDailyReset') !== today) {
+          updateUser({ peerInterviewsToday: 0, groupInterviewsToday: 0, collabRoomsCreatedToday: 0 });
+          localStorage.setItem('elmorigin:lastDailyReset', today);
+        }
+      }, []);
+
+      useEffect(() => {
+        window.openGate = (v, ctx) => { setGateVariant(v || 'generic'); setGateContext(ctx || null); };
+        return () => { delete window.openGate; };
+      }, []);
+
+      useEffect(() => { localStorage.setItem('elmorigin:route', route); }, [route]);
+      useEffect(() => { localStorage.setItem('elmorigin:loggedIn', String(isLoggedIn)); }, [isLoggedIn]);
+      useEffect(() => { localStorage.setItem('elmorigin:isMentor', String(isMentor)); }, [isMentor]);
+
+      useEffect(() => {
+        const onKey = (e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSearchOpen(true); }
+          if (e.key === 'Escape') { setSearchOpen(false); setBookingMentor(null); }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, []);
+
+      // ── Auth guard: redirect to login if not logged in & route requires auth ──
+      useEffect(() => {
+        if (!PUBLIC_ROUTES.has(route) && !isLoggedIn) {
+          setRoute('login');
+          return;
+        }
+        // Mentor guard: bounce non-mentors out of mentor-* routes
+        if (MENTOR_ROUTES.has(route) && isLoggedIn && !isMentor) {
+          setRoute('home');
+        }
+      }, [route, isLoggedIn, isMentor]);
+
+      const navigate = (id, payload) => {
+        if (id === 'room' && payload) {
+          setActiveRoom(payload);
+          setRoute('rooms');
+          return;
+        }
+        if (id === 'mentor-profile' && payload) {
+          setActiveMentor(payload);
+          setRoute('mentor-profile');
+          return;
+        }
+        if (id === 'mentor-bookings' && payload && payload.tab) {
+          setBookingsTab(payload.tab);
+          setRoute('mentor-bookings');
+          return;
+        }
+        if (id === 'interview-session' && payload) {
+          setActiveInterview(payload);
+          setRoute('interview-session');
+          return;
+        }
+        setRoute(id);
+        setMentorMode(null);
+      };
+
+      const signOut = () => {
+        setIsLoggedIn(false); setIsMentor(false); setActiveRoom(null); setActiveMentor(null); setRoute('landing');
+      };
+
+      // ── Full-screen authenticated routes (no shell) ──
+      if (route === 'interview-session' && isLoggedIn) {
+        const cfg = activeInterview || { mode: 'peer', type: 'Coding', level: 'Medium', length: 30 };
+        const back = () => { setActiveInterview(null); navigate('interviews'); };
+        return <InterviewSession config={cfg} user={user} updateUser={updateUser} navigate={navigate} onLeave={back}/>;
+      }
+
+      // ── Public/standalone routes (no shell) ──
+      if (route === 'landing') {
+        return <Landing navigate={navigate} theme={theme} setTheme={setTheme}/>;
+      }
+      if (route === 'login') {
+        return <LoginPage navigate={navigate} onLogin={(asMentor) => { setIsLoggedIn(true); setIsMentor(!!asMentor); navigate(asMentor ? 'mentor-dashboard' : 'home'); }}/>;
+      }
+      if (route === 'signup') {
+        return <SignupFlow navigate={navigate} onComplete={() => { setIsLoggedIn(true); setIsMentor(false); navigate('home'); }}/>;
+      }
+      if (route === 'forgot-password') {
+        return <ForgotPasswordPage navigate={navigate}/>;
+      }
+      if (route === 'reset-password') {
+        return <ResetPasswordPage navigate={navigate}/>;
+      }
+      if (route === 'mentor-apply') {
+        return <MentorApplyPage navigate={navigate}/>;
+      }
+      if (route === '404') {
+        return <NotFoundPage navigate={navigate} isMentor={isMentor}/>;
+      }
+      if (route === '500') {
+        return <ServerErrorPage navigate={navigate}/>;
+      }
+      if (route === 'maintenance') {
+        return <MaintenancePage navigate={navigate}/>;
+      }
+      if (route === 'session-expired') {
+        return <SessionExpiredPage navigate={navigate}/>;
+      }
+      if (route === 'mentor-setup') {
+        return <MentorSetupFlow
+          navigate={navigate}
+          prefilled={{
+            name: 'Dr. Priya Iyer',
+            email: 'priya.iyer@research.iitb.ac.in',
+            linkedin: 'https://linkedin.com/in/priya-iyer-phd',
+            primary: 'Data Science',
+          }}
+          onComplete={() => {
+            setIsLoggedIn(true);
+            setIsMentor(true);
+            navigate('mentor-dashboard');
+          }}
+        />;
+      }
+
+      const renderMain = () => {
+        if (route === 'home' || route === 'rooms') {
+          if (activeRoom) {
+            const Session = activeRoom.type === 'group-interview' ? GroupInterviewSession : RoomSession;
+            return <Session
+              room={activeRoom}
+              navigate={navigate}
+              onLeaveSummary={() => { setActiveRoom(null); navigate('home'); }}
+            />;
+          }
+          return <Home user={USER} navigate={navigate} initialTab={route === 'rooms' ? 'rooms' : undefined}/>;
+        }
+        if (route === 'mentors') {
+          if (mentorMode === 'ai') return <NovaChat back={() => setMentorMode(null)}/>;
+          if (mentorMode === 'human') return <HumanMentors back={() => setMentorMode(null)} openMentor={(m) => navigate('mentor-profile', m)}/>;
+          return <MentorsHub openMode={setMentorMode}/>;
+        }
+        if (route === 'productivity') return <Productivity/>;
+        if (route === 'interviews') return <Interviews user={user} updateUser={updateUser} navigate={navigate}/>;
+        if (route === 'community') return <Community/>;
+        if (route === 'settings') return <Settings user={user} updateUser={updateUser} navigate={navigate}/>;
+        if (route === 'mentor-profile') {
+          const m = activeMentor || (window.MENTORS && window.MENTORS[0]);
+          if (!m) return <ComingSoon title="Mentor profile" navigate={navigate}/>;
+          return <MentorProfileDetail mentor={m} navigate={navigate} openBooking={() => setBookingMentor(m)}/>;
+        }
+        if (route === 'my-sessions') return <MySessions user={user} navigate={navigate} openBooking={(m) => setBookingMentor(m)}/>;
+        if (route === 'profile') return <ProfilePage user={user} navigate={navigate}/>;
+        if (route === 'notifications') return <NotificationsPage navigate={navigate}/>;
+        if (route === 'pricing') return <PricingPage navigate={navigate} user={user}/>;
+        if (route === 'booking') return <ComingSoon title="Booking flow" navigate={navigate}/>;
+        // Mentor-only screens:
+        if (route === 'mentor-dashboard') return <MentorDashboard navigate={navigate} mentor={window.MENTOR_USER}/>;
+        if (route === 'mentor-bookings') return <MentorBookings navigate={navigate} initialTab={bookingsTab || 'requests'}/>;
+        if (route === 'mentor-availability') return <MentorAvailability navigate={navigate} mentor={window.MENTOR_USER}/>;
+        if (route === 'mentor-profile-edit') return <MentorProfileEdit navigate={navigate} mentor={window.MENTOR_USER}/>;
+        if (route === 'mentor-earnings') return <ComingSoon title="Earnings" navigate={navigate}/>;
+        if (route === 'mentor-reviews') return <ComingSoon title="Reviews" navigate={navigate}/>;
+        if (route === 'mentor-settings') return <ComingSoon title="Mentor settings" navigate={navigate}/>;
+        console.warn('Unknown route, redirecting to 404:', route);
+        return <NotFoundPage navigate={navigate} isMentor={isMentor}/>;
+      };
+
+      return (
+        <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
+          <Sidebar currentRoute={route} navigate={navigate} user={user} isMentor={isMentor}/>
+          <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+            <TopBar currentRoute={route} mentorMode={mentorMode} openSearch={() => setSearchOpen(true)} theme={theme} setTheme={setTheme} navigate={navigate} signOut={signOut} user={user} isMentor={isMentor}/>
+            <div style={{ flex: 1 }}>{renderMain()}</div>
+          </main>
+
+          {bookingMentor && <BookingFlow mentor={bookingMentor} close={() => setBookingMentor(null)}/>}
+          {searchOpen && <CommandPalette close={() => setSearchOpen(false)} navigate={(r) => { navigate(r); setSearchOpen(false); }}/>}
+          {gateVariant && <GateModal
+            variant={gateVariant}
+            context={gateContext}
+            onClose={() => { setGateVariant(null); setGateContext(null); }}
+            onUpgrade={() => { setGateVariant(null); setGateContext(null); navigate('pricing'); }}
+          />}
+        </div>
+      );
+    }
+
+    function CommandPalette({ close, navigate }) {
+      const [q, setQ] = useState('');
+      const items = [
+        { icon: 'home', label: 'Home', route: 'home', kind: 'Go to' },
+        { icon: 'mentors', label: 'Mentors', route: 'mentors', kind: 'Go to' },
+        { icon: 'productivity', label: 'Productivity', route: 'productivity', kind: 'Go to' },
+        { icon: 'interviews', label: 'Interviews', route: 'interviews', kind: 'Go to' },
+        { icon: 'community', label: 'Community', route: 'community', kind: 'Go to' },
+        { icon: 'settings', label: 'Settings', route: 'settings', kind: 'Go to' },
+        { icon: 'sparkles', label: 'Start 25-min focus', kind: 'Action' },
+        { icon: 'plus', label: 'New note', kind: 'Action' },
+        { icon: 'mentors', label: 'Book a session', kind: 'Action' },
+      ];
+      const filtered = q ? items.filter(i => i.label.toLowerCase().includes(q.toLowerCase())) : items;
+
+      return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(14,18,40,0.12)', backdropFilter: 'blur(6px)', zIndex: 300, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', paddingTop: 120 }} onClick={close}>
+          <div className="modal-in" style={{ width: 520, background: 'var(--bg-surface)', borderRadius: 18, overflow: 'hidden', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--border-subtle)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
+              <Icon name="search" size={16}/>
+              <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search…"
+                style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: 'var(--text-primary)', fontSize: 14 }}/>
+              <span style={{ fontFamily: 'JetBrains Mono', fontSize: 10, color: 'var(--text-tertiary)', padding: '3px 6px', border: '1px solid var(--border-default)', borderRadius: 4 }}>ESC</span>
+            </div>
+            <div style={{ maxHeight: 340, overflowY: 'auto', padding: 6 }}>
+              {filtered.length === 0 && <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>No results</div>}
+              {filtered.map((it, i) => (
+                <button key={i} onClick={() => it.route && navigate(it.route)}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '10px 12px', borderRadius: 10, color: 'var(--text-primary)', fontFamily: 'Instrument Sans', fontSize: 14, textAlign: 'left', transition: 'background 140ms' }}>
+                  <span style={{ color: 'var(--text-tertiary)' }}><Icon name={it.icon} size={15}/></span>
+                  <span style={{ flex: 1 }}>{it.label}</span>
+                  <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'Inter', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{it.kind}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App/>);
+  </script>
+</body>
+</html>

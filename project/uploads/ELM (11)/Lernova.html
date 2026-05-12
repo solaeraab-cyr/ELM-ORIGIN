@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ELM Origin — Learn. Connect. Evolve.</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,300;1,9..144,400;1,9..144,500;1,9..144,600;1,9..144,700;1,9..144,800&family=Figtree:wght@300;400;500;600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="styles.css"/>
+
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: 'Instrument Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #root { min-height: 100vh; }
+</style>
+<script>
+  /* Apply saved theme instantly before render — no flash */
+  (function() {
+    try {
+      var t = localStorage.getItem('elm-theme');
+      if (t === 'dark') document.documentElement.dataset.theme = 'dark';
+    } catch(e) {}
+  })();
+</script>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="src/primitives.jsx"></script>
+<script type="text/babel" src="src/shell.jsx"></script>
+<script type="text/babel" src="src/home.jsx"></script>
+<script type="text/babel" src="src/mentors.jsx"></script>
+<script type="text/babel" src="src/nova_full.jsx"></script>
+<script type="text/babel" src="src/room_session.jsx"></script>
+<script type="text/babel" src="src/session_summary.jsx"></script>
+<script type="text/babel" src="src/productivity.jsx"></script>
+<script type="text/babel" src="src/interviews.jsx"></script>
+<script type="text/babel" src="src/misc.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const USER = { name: 'Arjun Patel', plan: 'Pro', streak: 15 };
+
+// ── App ───────────────────────────────────────────────────────────
+function App() {
+  const [route, setRoute]           = useState(() => localStorage.getItem('elm:route') || 'home');
+  const [mentorMode, setMentorMode] = useState(null); // null | 'ai' | 'human'
+  const [bookingMentor, setBookingMentor] = useState(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [activeRoom, setActiveRoom] = useState(null);
+  const [sessionData, setSessionData] = useState(null);
+  const [appState, setAppState]     = useState('shell'); // 'shell' | 'room-session' | 'session-summary'
+  const [toast, setToast]           = useState(null);
+  const [dark, setDark]             = useTheme();
+
+  // persist route
+  useEffect(() => {
+    const safe = ['home','rooms','mentors','productivity','interviews','community','settings'];
+    const saved = localStorage.getItem('elm:route') || 'home';
+    if (safe.includes(saved)) setRoute(saved);
+    else setRoute('home');
+  }, []);
+
+  useEffect(() => {
+    if (appState === 'shell') localStorage.setItem('elm:route', route);
+  }, [route, appState]);
+
+  // keyboard
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSearchOpen(true); }
+      if (e.key === 'Escape') { setSearchOpen(false); setBookingMentor(null); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const navigate = (id, data) => {
+    if (id === 'room' && data) {
+      setActiveRoom(data);
+      setAppState('room-session');
+      return;
+    }
+    setRoute(id);
+    setMentorMode(null);
+    setAppState('shell');
+  };
+
+  const handleLeaveRoom = ({ elapsed, pomoDots }) => {
+    const mins = Math.floor((elapsed || 0) / 60);
+    const hrs  = Math.floor(mins / 60);
+    const rem  = mins % 60;
+    setSessionData({
+      roomName:    activeRoom?.topic   || 'Study Session',
+      subject:     activeRoom?.subject || 'General',
+      timeStudied: hrs > 0 ? `${hrs}h ${String(rem).padStart(2,'0')}m` : `${mins}m`,
+      pomodoros:   pomoDots || 2,
+      xpEarned:    Math.max(30, Math.round((mins / 25) * 30)),
+      dayStreak:   16,
+    });
+    setAppState('session-summary');
+  };
+
+  // ── Full-screen states ─────────────────────────────────────────
+  if (appState === 'room-session') {
+    return <RoomSession room={activeRoom} onLeave={handleLeaveRoom}/>;
+  }
+  if (appState === 'session-summary') {
+    return <SessionSummary
+      sessionData={sessionData}
+      onReturn={() => { setAppState('shell'); setRoute('home'); }}
+      onDashboard={() => { setAppState('shell'); setRoute('home'); }}
+    />;
+  }
+
+  const isNovaFull = route === 'mentors' && mentorMode === 'ai';
+
+  const renderMain = () => {
+    if (route === 'home')         return <Home user={USER} navigate={navigate}/>;
+    if (route === 'rooms')        return <Home user={USER} navigate={navigate}/>;
+    if (route === 'mentors') {
+      if (mentorMode === 'ai')    return <NovaChatFull back={() => setMentorMode(null)}/>;
+      if (mentorMode === 'human') return <HumanMentors back={() => setMentorMode(null)} openMentor={setBookingMentor}/>;
+      return <MentorsHub openMode={setMentorMode}/>;
+    }
+    if (route === 'productivity') return <Productivity/>;
+    if (route === 'interviews')   return <Interviews user={USER}/>;
+    if (route === 'community')    return <Community/>;
+    if (route === 'settings')     return <Settings user={USER}/>;
+    return null;
+  };
+
+  return (
+    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
+      <Sidebar currentRoute={route} navigate={navigate} user={USER}/>
+
+      <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <TopBar currentRoute={route} openSearch={() => setSearchOpen(true)} navigate={navigate} dark={dark} onToggleTheme={() => setDark(d => !d)}/>
+        <MobileTopBar currentRoute={route} navigate={navigate} user={USER} openSearch={() => setSearchOpen(true)} dark={dark} onToggleTheme={() => setDark(d => !d)}/>
+
+        <div style={{ flex: 1, display: isNovaFull ? 'flex' : 'block', flexDirection: 'column', overflowY: isNovaFull ? 'hidden' : 'auto' }}>
+          {renderMain()}
+        </div>
+      </main>
+
+      <MobileNav currentRoute={route} navigate={navigate}/>
+
+      {bookingMentor && <BookingFlow mentor={bookingMentor} close={() => setBookingMentor(null)}/>}
+      {searchOpen    && <CommandPalette close={() => setSearchOpen(false)} navigate={(r) => { navigate(r); setSearchOpen(false); }}/>}
+      {toast         && <Toast message={toast.message} type={toast.type} onDismiss={() => setToast(null)}/>}
+    </div>
+  );
+}
+
+// ── Command Palette ───────────────────────────────────────────────
+function CommandPalette({ close, navigate }) {
+  const [q, setQ] = useState('');
+  const items = [
+    { icon: 'home',         label: 'Dashboard',          route: 'home',         kind: 'Go to' },
+    { icon: 'rooms',        label: 'Study Rooms',         route: 'rooms',        kind: 'Go to' },
+    { icon: 'nova',         label: 'Nova AI / Mentors',   route: 'mentors',      kind: 'Go to' },
+    { icon: 'productivity', label: 'Productivity',        route: 'productivity', kind: 'Go to' },
+    { icon: 'interviews',   label: 'Interviews',          route: 'interviews',   kind: 'Go to' },
+    { icon: 'community',    label: 'Community',           route: 'community',    kind: 'Go to' },
+    { icon: 'settings',     label: 'Settings',            route: 'settings',     kind: 'Go to' },
+    { icon: 'sparkles',     label: 'Start 25-min focus',  kind: 'Action' },
+    { icon: 'plus',         label: 'New note',            kind: 'Action' },
+    { icon: 'mentors',      label: 'Book a session',      kind: 'Action' },
+  ];
+  const filtered = q ? items.filter(i => i.label.toLowerCase().includes(q.toLowerCase())) : items;
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(7,10,24,0.75)', backdropFilter: 'blur(10px)', zIndex: 300, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', paddingTop: 120 }} onClick={close}>
+      <div className="glass-3 modal-in" style={{ width: 520, borderRadius: 20, overflow: 'hidden', boxShadow: 'var(--elevation-brand)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <Icon name="search" size={16} color="var(--text-tertiary)"/>
+          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search screens, actions…"
+            style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: 'var(--text-primary)', fontSize: 15, fontFamily: 'Instrument Sans' }}/>
+          <span style={{ fontFamily: 'JetBrains Mono', fontSize: 10, color: 'var(--text-muted)', padding: '3px 6px', border: '1px solid var(--border-default)', borderRadius: 4 }}>ESC</span>
+        </div>
+        <div style={{ maxHeight: 360, overflowY: 'auto', padding: 6 }}>
+          {filtered.length === 0 && (
+            <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 14, fontFamily: 'Instrument Sans' }}>No results</div>
+          )}
+          {filtered.map((it, i) => (
+            <button key={i} onClick={() => it.route && navigate(it.route)}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '10px 12px', borderRadius: 10, color: 'var(--text-primary)', fontFamily: 'Instrument Sans', fontSize: 14, textAlign: 'left', transition: 'background 130ms' }}
+            >
+              <span style={{ width: 32, height: 32, borderRadius: 9, background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--brand-400)', flexShrink: 0 }}>
+                <Icon name={it.icon} size={15}/>
+              </span>
+              <span style={{ flex: 1 }}>{it.label}</span>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'Figtree', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{it.kind}</span>
+            </button>
+          ))}
+        </div>
+        <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono' }}>
+          <span>↵ select</span>
+          <span>↑↓ navigate</span>
+          <span>esc close</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App/>);
+</script>
+</body>
+</html>
