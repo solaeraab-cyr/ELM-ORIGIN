@@ -3,10 +3,15 @@ import { createClient } from '@/lib/supabase/server';
 import Landing from '@/components/landing/Landing';
 
 export default async function RootPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-  if (user) redirect('/home');
+    if (user) redirect('/home');
+  } catch (error) {
+    console.error('Auth error:', error);
+    // Continue to Landing if auth fails
+  }
 
   return <Landing />;
 }
