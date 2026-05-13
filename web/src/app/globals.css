@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════
+   ELM ORIGIN — Design tokens as CSS vars
+   (mirrors project/styles.css for gradual migration)
+   ═══════════════════════════════════════ */
+
+:root {
+  --bg-base:     #F8F9FF;
+  --bg-surface:  #FFFFFF;
+  --bg-elevated: #FFFFFF;
+  --bg-hover:    #EEF0FF;
+  --bg-subtle:   #EEF0FF;
+  --bg-sidebar:  #F0F2FF;
+
+  --brand-800: #0D1757;
+  --brand-700: #142070;
+  --brand-600: #1B2B8E;
+  --brand-500: #2236B0;
+  --brand-400: #3D52CC;
+  --brand-300: #7B8FE8;
+  --brand-200: #B8C4F4;
+  --brand-100: #D6DCFF;
+  --brand-50:  #EEF0FF;
+
+  --gold-700: #92400E;
+  --gold-600: #B45309;
+  --gold-500: #F59E0B;
+  --gold-400: #FBBF24;
+  --gold-100: #FEF3C7;
+  --amber-600: var(--gold-600);
+  --amber-500: var(--gold-500);
+  --amber-400: var(--gold-400);
+  --amber-100: var(--gold-100);
+
+  --mint-700: #047857;
+  --mint-600: #059669;
+  --mint-500: #10B981;
+  --mint-400: #34D399;
+  --mint-100: #D1FAE5;
+
+  --danger-600: #BE123C;
+  --danger-500: #E11D48;
+  --danger-100: #FFE4E6;
+
+  --text-primary:   #0D1757;
+  --text-secondary: #475569;
+  --text-tertiary:  #94A3B8;
+  --text-muted:     #B5BACB;
+  --text-inverse:   #FFFFFF;
+
+  --border-subtle:  #DDE1FF;
+  --border-default: #BBC3F0;
+  --border-strong:  #7B8FE8;
+
+  --gradient-brand:      linear-gradient(135deg, #0D1757 0%, #3D52CC 100%);
+  --gradient-brand-warm: linear-gradient(135deg, #1B2B8E 0%, #F59E0B 100%);
+  --gradient-ai:         linear-gradient(135deg, #10B981 0%, #3D52CC 100%);
+
+  --shadow-xs: 0 1px 3px rgba(13,23,87,0.08);
+  --shadow-sm: 0 2px 8px rgba(13,23,87,0.10);
+  --shadow-md: 0 4px 20px rgba(13,23,87,0.12);
+  --shadow-lg: 0 12px 36px rgba(13,23,87,0.14);
+  --shadow-xl: 0 20px 60px rgba(13,23,87,0.18);
+  --shadow-brand: 0 8px 28px rgba(27,43,142,0.30), 0 2px 8px rgba(13,23,87,0.18);
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-smooth:   cubic-bezier(0.4, 0, 0.2, 1);
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+}
+
+.dark {
+  --bg-base:     #070D28;
+  --bg-surface:  #0F1A3D;
+  --bg-elevated: #142049;
+  --bg-hover:    rgba(123,143,232,0.10);
+  --bg-subtle:   #111D42;
+  --bg-sidebar:  #090F2E;
+
+  --text-primary:   #E8ECFF;
+  --text-secondary: #94A3B8;
+  --text-tertiary:  #64748B;
+  --text-muted:     #475569;
+
+  --border-subtle:  rgba(123,143,232,0.14);
+  --border-default: rgba(123,143,232,0.22);
+  --border-strong:  rgba(123,143,232,0.40);
+
+  --brand-50:  rgba(123,143,232,0.10);
+  --brand-100: rgba(123,143,232,0.18);
+
+  --shadow-xs: 0 1px 3px rgba(0,0,0,0.4);
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.5);
+  --shadow-md: 0 4px 20px rgba(0,0,0,0.6);
+  --shadow-lg: 0 12px 36px rgba(0,0,0,0.65);
+  --shadow-xl: 0 20px 60px rgba(0,0,0,0.72);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up { animation: fadeInUp 400ms var(--ease-out-expo) both; }
+
+@keyframes spin { to { transform: rotate(360deg); } }

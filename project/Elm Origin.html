@@ -298,9 +298,9 @@
         if (route === 'mentor-bookings') return <MentorBookings navigate={navigate} initialTab={bookingsTab || 'requests'}/>;
         if (route === 'mentor-availability') return <MentorAvailability navigate={navigate} mentor={window.MENTOR_USER}/>;
         if (route === 'mentor-profile-edit') return <MentorProfileEdit navigate={navigate} mentor={window.MENTOR_USER}/>;
-        if (route === 'mentor-earnings') return <ComingSoon title="Earnings" navigate={navigate}/>;
-        if (route === 'mentor-reviews') return <ComingSoon title="Reviews" navigate={navigate}/>;
-        if (route === 'mentor-settings') return <ComingSoon title="Mentor settings" navigate={navigate}/>;
+        if (route === 'mentor-earnings') return <MentorEarnings navigate={navigate}/>;
+        if (route === 'mentor-reviews') return <MentorReviews navigate={navigate}/>;
+        if (route === 'mentor-settings') return <MentorSettings navigate={navigate}/>;
         console.warn('Unknown route, redirecting to 404:', route);
         return <NotFoundPage navigate={navigate} isMentor={isMentor}/>;
       };

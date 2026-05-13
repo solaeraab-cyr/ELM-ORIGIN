@@ -607,5 +607,390 @@ const EmptyState = ({ msg, cta }) => (
   </div>
 );
 
+// ═══════════════════════════════════════════════════════════════
+// MENTOR EARNINGS
+// ═══════════════════════════════════════════════════════════════
+const MONTHLY_DATA = [
+  { month: 'Nov', earned: 12400 },
+  { month: 'Dec', earned: 15800 },
+  { month: 'Jan', earned: 18200 },
+  { month: 'Feb', earned: 14600 },
+  { month: 'Mar', earned: 21300 },
+  { month: 'Apr', earned: 19700 },
+  { month: 'May', earned: 9800 },
+];
+
+const TRANSACTIONS = [
+  { student: 'Rahul Sharma', type: 'Video · 60 min', date: 'May 10, 2026', amount: 999, status: 'paid' },
+  { student: 'Priya Gupta',  type: 'Video · 30 min', date: 'May 9, 2026',  amount: 599, status: 'paid' },
+  { student: 'Arjun Mehta',  type: 'Voice · 60 min', date: 'May 7, 2026',  amount: 899, status: 'paid' },
+  { student: 'Kavya Iyer',   type: 'Video · 60 min', date: 'May 5, 2026',  amount: 999, status: 'paid' },
+  { student: 'Dev Rathi',    type: 'Video · 30 min', date: 'May 2, 2026',  amount: 599, status: 'pending' },
+  { student: 'Meera Nair',   type: 'Voice · 60 min', date: 'Apr 30, 2026', amount: 899, status: 'paid' },
+  { student: 'Rohan Gupta',  type: 'Video · 60 min', date: 'Apr 28, 2026', amount: 999, status: 'paid' },
+];
+
+const MentorEarnings = ({ navigate }) => {
+  const maxEarned = Math.max(...MONTHLY_DATA.map(d => d.earned));
+  const thisMonth = MONTHLY_DATA[MONTHLY_DATA.length - 1];
+  const lastMonth = MONTHLY_DATA[MONTHLY_DATA.length - 2];
+  const totalEarned = MONTHLY_DATA.reduce((s, d) => s + d.earned, 0);
+  const pending = TRANSACTIONS.filter(t => t.status === 'pending').reduce((s, t) => s + t.amount, 0);
+
+  return (
+    <div className="page">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
+        <h1 className="font-display" style={{ fontSize: 44, fontWeight: 500, letterSpacing: '-0.02em' }}>Earnings</h1>
+        <button className="btn btn-ghost btn-md"><Icon name="trending" size={15}/> Request payout</button>
+      </div>
+
+      {/* Summary cards */}
+      <div className="stagger-in" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 36 }}>
+        {[
+          { label: 'This month', value: `₹${thisMonth.earned.toLocaleString()}`, sub: `vs ₹${lastMonth.earned.toLocaleString()} last month`, color: 'var(--mint-600)' },
+          { label: 'Pending payout', value: `₹${pending.toLocaleString()}`, sub: 'Clears in 3-5 days', color: 'var(--gold-600)' },
+          { label: 'Total earned', value: `₹${totalEarned.toLocaleString()}`, sub: 'Last 7 months', color: 'var(--brand-600)' },
+          { label: 'Sessions',    value: `${TRANSACTIONS.length}`, sub: 'This month', color: 'var(--text-secondary)' },
+        ].map(s => (
+          <div key={s.label} className="card lift" style={{ padding: 22 }}>
+            <div className="label-sm">{s.label}</div>
+            <div className="font-display" style={{ fontSize: 32, fontWeight: 500, marginTop: 10, letterSpacing: '-0.03em', color: s.color }}>{s.value}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 6 }}>{s.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Monthly bar chart */}
+      <div className="card" style={{ padding: 28, marginBottom: 28 }}>
+        <h3 className="font-heading" style={{ fontSize: 16, fontWeight: 600, marginBottom: 24 }}>Monthly earnings</h3>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: 160 }}>
+          {MONTHLY_DATA.map((d, i) => {
+            const isLast = i === MONTHLY_DATA.length - 1;
+            const pct = (d.earned / maxEarned) * 100;
+            return (
+              <div key={d.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono', color: 'var(--text-tertiary)', opacity: isLast ? 1 : 0.7 }}>₹{(d.earned/1000).toFixed(1)}k</div>
+                <div style={{
+                  width: '100%', height: `${pct}%`, minHeight: 4,
+                  background: isLast ? 'var(--gradient-brand)' : 'var(--bg-subtle)',
+                  border: isLast ? 'none' : '1px solid var(--border-default)',
+                  borderRadius: '6px 6px 0 0',
+                  transition: 'height 600ms var(--ease-out-expo)',
+                  boxShadow: isLast ? 'var(--shadow-brand)' : 'none',
+                }}/>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'Inter', fontWeight: isLast ? 600 : 400 }}>{d.month}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Transaction list */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center' }}>
+          <h3 className="font-heading" style={{ fontSize: 16, fontWeight: 600, flex: 1 }}>Transactions</h3>
+          <button className="btn btn-ghost btn-sm"><Icon name="trending" size={13}/> Export CSV</button>
+        </div>
+        {TRANSACTIONS.map((t, i) => (
+          <div key={i} style={{
+            display: 'flex', alignItems: 'center', gap: 14, padding: '16px 24px',
+            borderBottom: i < TRANSACTIONS.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+            transition: 'background 160ms',
+          }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            <Avatar name={t.student} size={36}/>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: 'Inter', fontWeight: 600, fontSize: 14 }}>{t.student}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{t.type} · {t.date}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontFamily: 'JetBrains Mono', fontWeight: 600, fontSize: 15, color: 'var(--text-primary)' }}>₹{t.amount.toLocaleString()}</div>
+              <span style={{
+                fontSize: 10, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
+                padding: '2px 8px', borderRadius: 999, marginTop: 4, display: 'inline-block',
+                background: t.status === 'paid' ? 'var(--mint-100)' : 'var(--gold-100)',
+                color: t.status === 'paid' ? 'var(--mint-700)' : 'var(--gold-700)',
+              }}>{t.status}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════
+// MENTOR REVIEWS
+// ═══════════════════════════════════════════════════════════════
+const MENTOR_REVIEWS_DATA = [
+  { student: 'Rahul S.', rating: 5, date: 'May 10, 2026', topic: 'Statistics · A/B testing', body: 'Dr. Iyer explained everything so clearly. I finally understand hypothesis testing after 3 months of confusion. Highly recommend!', responded: false },
+  { student: 'Kavya I.', rating: 5, date: 'May 5, 2026',  topic: 'Machine learning', body: 'Amazing session. She caught my conceptual gap in gradient descent immediately and fixed it in 10 minutes.', responded: true, response: 'Thank you Kavya! Really enjoyed our session.' },
+  { student: 'Dev R.',   rating: 4, date: 'Apr 28, 2026', topic: 'Time series', body: 'Very knowledgeable. Could have slowed down a bit in the ARIMA section, but overall excellent.', responded: false },
+  { student: 'Meera N.', rating: 5, date: 'Apr 20, 2026', topic: 'Data Science', body: 'Best mentor I\'ve had on this platform. Priya goes above and beyond — even sent notes after the session!', responded: true, response: 'Always happy to go the extra mile 🙏' },
+  { student: 'Arjun P.', rating: 5, date: 'Apr 15, 2026', topic: 'Pandas · Data wrangling', body: 'She helped me debug a tricky merge issue I\'d been stuck on for days. Straight to the point, no fluff.', responded: false },
+];
+
+const StarDisplay = ({ rating, size = 14 }) => (
+  <div style={{ display: 'flex', gap: 2 }}>
+    {[1,2,3,4,5].map(s => (
+      <svg key={s} width={size} height={size} viewBox="0 0 24 24" fill={s <= rating ? 'var(--gold-500)' : 'var(--bg-subtle)'} stroke={s <= rating ? 'var(--gold-500)' : 'var(--border-default)'} strokeWidth="1.5">
+        <path d="m12 3 2.9 6 6.6.6-5 4.4 1.5 6.5L12 17l-6 3.5 1.5-6.5-5-4.4 6.6-.6L12 3Z"/>
+      </svg>
+    ))}
+  </div>
+);
+
+const MentorReviews = ({ navigate }) => {
+  const [respondingTo, setRespondingTo] = useState(null);
+  const [responseText, setResponseText] = useState('');
+  const [reviews, setReviews] = useState(MENTOR_REVIEWS_DATA);
+  const avgRating = (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1);
+  const dist = [5,4,3,2,1].map(n => ({ stars: n, count: reviews.filter(r => r.rating === n).length }));
+
+  const submitResponse = (i) => {
+    if (!responseText.trim()) return;
+    setReviews(rs => rs.map((r, idx) => idx === i ? { ...r, responded: true, response: responseText } : r));
+    setRespondingTo(null);
+    setResponseText('');
+  };
+
+  return (
+    <div className="page">
+      <h1 className="font-display" style={{ fontSize: 44, fontWeight: 500, letterSpacing: '-0.02em', marginBottom: 32 }}>Reviews</h1>
+
+      {/* Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 20, marginBottom: 32 }}>
+        <div className="card" style={{ padding: 28, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <div className="font-display" style={{ fontSize: 72, fontWeight: 500, letterSpacing: '-0.04em', color: 'var(--text-primary)', lineHeight: 1 }}>{avgRating}</div>
+          <StarDisplay rating={Math.round(avgRating)} size={20}/>
+          <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 4 }}>{reviews.length} reviews total</div>
+        </div>
+        <div className="card" style={{ padding: 28, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 10 }}>
+          {dist.map(d => (
+            <div key={d.stars} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontFamily: 'JetBrains Mono', fontSize: 12, width: 14, color: 'var(--text-tertiary)' }}>{d.stars}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="var(--gold-400)" stroke="none"><path d="m12 3 2.9 6 6.6.6-5 4.4 1.5 6.5L12 17l-6 3.5 1.5-6.5-5-4.4 6.6-.6L12 3Z"/></svg>
+              <div style={{ flex: 1, height: 8, background: 'var(--bg-subtle)', borderRadius: 999, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${(d.count / reviews.length) * 100}%`, background: 'var(--gold-400)', borderRadius: 999, transition: 'width 600ms var(--ease-out-expo)' }}/>
+              </div>
+              <span style={{ fontFamily: 'JetBrains Mono', fontSize: 12, width: 20, textAlign: 'right', color: 'var(--text-tertiary)' }}>{d.count}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Review list */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {reviews.map((r, i) => (
+          <div key={i} className="card" style={{ padding: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
+              <Avatar name={r.student} size={40}/>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontFamily: 'Inter', fontWeight: 600, fontSize: 14 }}>{r.student}</span>
+                  <StarDisplay rating={r.rating}/>
+                  <span style={{ fontSize: 12, color: 'var(--text-tertiary)', marginLeft: 'auto' }}>{r.date}</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{r.topic}</div>
+              </div>
+            </div>
+            <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text-primary)', marginBottom: r.responded || respondingTo === i ? 16 : 0 }}>{r.body}</p>
+
+            {r.responded && (
+              <div style={{ background: 'var(--bg-subtle)', borderRadius: 12, padding: '12px 16px', borderLeft: '3px solid var(--brand-400)' }}>
+                <div className="label-sm" style={{ marginBottom: 6 }}>Your response</div>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{r.response}</p>
+              </div>
+            )}
+
+            {!r.responded && respondingTo === i && (
+              <div className="fade-in" style={{ marginTop: 8 }}>
+                <textarea value={responseText} onChange={e => setResponseText(e.target.value)}
+                  placeholder="Write a thoughtful response…"
+                  className="textarea" style={{ minHeight: 80, marginBottom: 10 }}/>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setRespondingTo(null); setResponseText(''); }}>Cancel</button>
+                  <button className="btn btn-brand btn-sm" onClick={() => submitResponse(i)} disabled={!responseText.trim()}>Submit response</button>
+                </div>
+              </div>
+            )}
+
+            {!r.responded && respondingTo !== i && (
+              <button onClick={() => { setRespondingTo(i); setResponseText(''); }}
+                style={{ marginTop: 8, fontSize: 13, fontWeight: 500, color: 'var(--brand-500)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Icon name="chat" size={13}/> Respond to this review
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════
+// MENTOR SETTINGS
+// ═══════════════════════════════════════════════════════════════
+const MentorSettings = ({ navigate }) => {
+  const [section, setSection] = useState('profile');
+  const nav = [
+    ['profile', 'Profile visibility', 'settings'],
+    ['payments', 'Payments & payouts', 'trending'],
+    ['notifications', 'Notifications', 'bell'],
+    ['account', 'Account', 'lock'],
+  ];
+
+  return (
+    <div className="page">
+      <h1 className="font-display" style={{ fontSize: 44, fontWeight: 500, letterSpacing: '-0.02em', marginBottom: 32 }}>Mentor Settings</h1>
+      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 32 }}>
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {nav.map(([id, label, icon]) => (
+            <button key={id} onClick={() => setSection(id)} style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10,
+              background: section === id ? 'var(--bg-hover)' : 'transparent',
+              color: section === id ? 'var(--text-primary)' : 'var(--text-secondary)',
+              fontFamily: 'Inter', fontWeight: section === id ? 600 : 500, fontSize: 14,
+              transition: 'all 180ms',
+            }}>
+              <Icon name={icon} size={15}/> {label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="fade-in" key={section} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {section === 'profile' && (
+            <div className="card" style={{ padding: 26 }}>
+              <h3 className="font-heading" style={{ fontSize: 16, fontWeight: 600, marginBottom: 18 }}>Profile visibility</h3>
+              {[
+                ['Show full name', 'Display your full name publicly', true],
+                ['Show email', 'Visible to booked students only', false],
+                ['Show LinkedIn', 'Link to your LinkedIn profile', true],
+                ['Featured mentor', 'Appear in homepage spotlight', true],
+                ['Accept instant bookings', 'Students can book without prior approval', true],
+                ['Show rating publicly', 'Your rating is visible on your profile', true],
+              ].map(([title, sub, on], i, a) => (
+                <MentorSettingToggle key={title} title={title} sub={sub} defaultOn={on} last={i === a.length - 1}/>
+              ))}
+            </div>
+          )}
+
+          {section === 'payments' && (
+            <>
+              <div className="card" style={{ padding: 26 }}>
+                <h3 className="font-heading" style={{ fontSize: 16, fontWeight: 600, marginBottom: 18 }}>Payout account</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'var(--bg-subtle)', borderRadius: 12, marginBottom: 16 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--brand-100)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Icon name="trending" size={18} style={{ color: 'var(--brand-600)' }}/>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontFamily: 'Inter', fontWeight: 600, fontSize: 14 }}>HDFC Bank · ••••4291</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>Primary payout account</div>
+                  </div>
+                  <button className="btn btn-ghost btn-sm">Change</button>
+                </div>
+                <button className="btn btn-ghost btn-sm"><Icon name="plus" size={14}/> Add account</button>
+              </div>
+              <div className="card" style={{ padding: 26 }}>
+                <h3 className="font-heading" style={{ fontSize: 16, fontWeight: 600, marginBottom: 14 }}>Payout schedule</h3>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {['Weekly (every Monday)', 'Bi-weekly', 'Monthly (1st)'].map((opt, i) => (
+                    <button key={opt} style={{
+                      padding: '8px 16px', borderRadius: 999, fontSize: 13, fontFamily: 'Inter', fontWeight: 500,
+                      background: i === 0 ? 'var(--text-primary)' : 'var(--bg-surface)',
+                      color: i === 0 ? '#fff' : 'var(--text-secondary)',
+                      border: i === 0 ? 'none' : '1px solid var(--border-default)',
+                      transition: 'all 180ms',
+                    }}>{opt}</button>
+                  ))}
+                </div>
+                <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--mint-100)', borderRadius: 10, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <Icon name="check" size={14} style={{ color: 'var(--mint-700)', marginTop: 2, flexShrink: 0 }}/>
+                  <div style={{ fontSize: 12, color: 'var(--mint-700)', lineHeight: 1.5 }}>Elm Origin takes a <strong>15% platform fee</strong>. You keep 85% of each session fee. Taxes are your responsibility — download your earnings report for your records.</div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {section === 'notifications' && (
+            <div className="card" style={{ padding: 26 }}>
+              <h3 className="font-heading" style={{ fontSize: 16, fontWeight: 600, marginBottom: 14 }}>Notify me about</h3>
+              {[
+                ['New booking requests', 'When a student requests a session', true],
+                ['Session reminders', '15 min before each session', true],
+                ['New reviews', 'When a student leaves a review', true],
+                ['Payout processed', 'When your weekly payout clears', true],
+                ['Platform updates', 'Product changes and announcements', false],
+                ['Student messages', 'Direct messages from students', true],
+              ].map(([title, sub, on], i, a) => (
+                <MentorSettingToggle key={title} title={title} sub={sub} defaultOn={on} last={i === a.length - 1}/>
+              ))}
+            </div>
+          )}
+
+          {section === 'account' && (
+            <>
+              <div className="card" style={{ padding: 26 }}>
+                <h3 className="font-heading" style={{ fontSize: 16, fontWeight: 600, marginBottom: 14 }}>Account</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  <div>
+                    <div className="label-sm" style={{ marginBottom: 6 }}>Full name</div>
+                    <input className="input" defaultValue="Dr. Priya Iyer"/>
+                  </div>
+                  <div>
+                    <div className="label-sm" style={{ marginBottom: 6 }}>Email</div>
+                    <input className="input" defaultValue="priya.iyer@research.iitb.ac.in"/>
+                  </div>
+                </div>
+                <button className="btn btn-brand btn-md" style={{ marginTop: 18 }}>Save changes</button>
+              </div>
+              <div className="card" style={{ padding: 26 }}>
+                <h3 className="font-heading" style={{ fontSize: 16, fontWeight: 600, marginBottom: 14 }}>Security</h3>
+                <MentorSettingRow title="Password" sub="Last changed 2 months ago" right={<button className="btn btn-ghost btn-sm">Change</button>} last/>
+              </div>
+              <div className="card" style={{ padding: 26, borderColor: 'var(--danger-100)' }}>
+                <h3 className="font-heading" style={{ fontSize: 15, fontWeight: 600, color: 'var(--danger-500)', marginBottom: 8 }}>Pause profile</h3>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>Pausing hides your profile from search and prevents new bookings. Existing bookings are unaffected.</p>
+                <button style={{ height: 36, padding: '0 16px', borderRadius: 999, border: '1px solid var(--danger-500)', color: 'var(--danger-500)', fontSize: 13, fontWeight: 600 }}>Pause profile</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const MentorSettingRow = ({ title, sub, right, last }) => (
+  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderBottom: last ? 'none' : '1px solid var(--border-subtle)' }}>
+    <div>
+      <div style={{ fontFamily: 'Inter', fontWeight: 500, fontSize: 14 }}>{title}</div>
+      <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{sub}</div>
+    </div>
+    {right}
+  </div>
+);
+
+const MentorSettingToggle = ({ title, sub, defaultOn, last }) => {
+  const [on, setOn] = useState(defaultOn);
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderBottom: last ? 'none' : '1px solid var(--border-subtle)' }}>
+      <div>
+        <div style={{ fontFamily: 'Inter', fontWeight: 500, fontSize: 14 }}>{title}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{sub}</div>
+      </div>
+      <button onClick={() => setOn(!on)} style={{
+        width: 42, height: 24, borderRadius: 999,
+        background: on ? 'var(--text-primary)' : 'var(--bg-subtle)',
+        position: 'relative', transition: 'background 220ms', flexShrink: 0,
+      }}>
+        <div style={{ position: 'absolute', top: 2, left: on ? 20 : 2, width: 20, height: 20, borderRadius: 999, background: '#fff', boxShadow: 'var(--shadow-xs)', transition: 'left 240ms var(--ease-spring)' }}/>
+      </button>
+    </div>
+  );
+};
+
 // Exports
-Object.assign(window, { MentorProfileEdit, MentorAvailability, MentorBookings });
+Object.assign(window, { MentorProfileEdit, MentorAvailability, MentorBookings, MentorEarnings, MentorReviews, MentorSettings });

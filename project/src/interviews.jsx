@@ -834,6 +834,66 @@ const LivePeerInterview = ({ back, onEnd }) => {
 window.Interviews = Interviews;
 
 // ═══════════════════════════════════════
+// INTERVIEW SESSION — full-screen wrapper (peer / ai / group)
+// ═══════════════════════════════════════
+const InterviewSession = ({ config = {}, user, updateUser, navigate, onLeave }) => {
+  const { mode = 'peer' } = config;
+  const [phase, setPhase] = useState('live'); // live | feedback
+  const handleEnd = () => setPhase('feedback');
+  const handleFeedbackDone = () => { onLeave && onLeave(); };
+
+  if (phase === 'feedback') {
+    return (
+      <div className="fade-in" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)', padding: 40 }}>
+        <div style={{ maxWidth: 520, width: '100%', textAlign: 'center' }}>
+          <div style={{ width: 80, height: 80, borderRadius: 999, background: 'var(--gradient-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', boxShadow: 'var(--shadow-brand)' }}>
+            <Icon name="check" size={36} stroke={2.5} style={{ color: '#fff' }}/>
+          </div>
+          <h2 className="font-display" style={{ fontSize: 36, fontWeight: 500, marginBottom: 8 }}>Session complete</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 15, marginBottom: 32, lineHeight: 1.5 }}>
+            Great work! Your interview session has been recorded. Review your performance and share feedback below.
+          </p>
+          <div className="card" style={{ textAlign: 'left', padding: 24, marginBottom: 20 }}>
+            <div className="label-sm" style={{ marginBottom: 16 }}>How did it go?</div>
+            {['Problem understanding', 'Communication', 'Code quality', 'Edge cases'].map((dim) => (
+              <div key={dim} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                <span style={{ fontSize: 14, color: 'var(--text-primary)' }}>{dim}</span>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {[1,2,3,4,5].map(s => (
+                    <button key={s} style={{ width: 22, height: 22, borderRadius: 6, background: s <= 4 ? 'var(--gradient-brand)' : 'var(--bg-subtle)', border: 'none', cursor: 'pointer', transition: 'all 160ms' }}/>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+            <button className="btn btn-ghost btn-md" onClick={handleFeedbackDone}>Skip feedback</button>
+            <button className="btn btn-brand btn-md" onClick={handleFeedbackDone}>Submit & exit</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'ai') {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--bg-base)' }}>
+        <div style={{ padding: '16px 32px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button onClick={onLeave} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-tertiary)', fontFamily: 'Inter', fontWeight: 500 }}>
+            <Icon name="chevronL" size={14}/> Exit
+          </button>
+          <span className="chip chip-mint" style={{ marginLeft: 8 }}><span style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--mint-500)', animation: 'pulseDot 1.5s infinite', display: 'inline-block', marginRight: 4 }}/>AI Coach · Live</span>
+        </div>
+        <AICoach back={onLeave}/>
+      </div>
+    );
+  }
+
+  return <LivePeerInterview back={onLeave} onEnd={handleEnd}/>;
+};
+window.InterviewSession = InterviewSession;
+
+// ═══════════════════════════════════════
 // AI INTERVIEW COACH — launcher card + 3-step flow
 // ═══════════════════════════════════════
 

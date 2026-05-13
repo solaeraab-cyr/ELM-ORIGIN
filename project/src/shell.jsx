@@ -19,6 +19,7 @@ const MENTOR_NAV_ITEMS = [
   { id: 'mentor-availability', label: 'Availability', icon: 'calendar' },
   { id: 'mentor-earnings',     label: 'Earnings',     icon: 'trending' },
   { id: 'mentor-reviews',      label: 'Reviews',      icon: 'star' },
+  { id: 'mentor-settings',     label: 'Settings',     icon: 'settings' },
 ];
 
 const Sidebar = ({ currentRoute, navigate, user, isMentor }) => {
