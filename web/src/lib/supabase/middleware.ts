@@ -26,11 +26,25 @@ export async function updateSession(request: NextRequest) {
   // Refresh session — do not remove this line
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Redirect unauthenticated users away from protected routes
+  // Redirect unauthenticated users away from protected routes.
+  // Public routes: the marketing landing, auth pages, mentor onboarding, utility/legal pages.
   const { pathname } = request.nextUrl;
-  const isPublic = ["/login", "/signup", "/forgot-password", "/reset-password", "/check-email"].some(
-    (p) => pathname.startsWith(p)
-  );
+  const PUBLIC_EXACT = new Set(["/"]);
+  const PUBLIC_PREFIXES = [
+    "/login",
+    "/signup",
+    "/forgot-password",
+    "/reset-password",
+    "/check-email",
+    "/apply",
+    "/mentor-setup",
+    "/maintenance",
+    "/session-expired",
+    "/legal",
+  ];
+  const isPublic =
+    PUBLIC_EXACT.has(pathname) ||
+    PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
