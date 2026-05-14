@@ -7,10 +7,14 @@ import { createClient } from "@/lib/supabase/server";
 export async function signUp(formData: FormData) {
   const supabase = await createClient();
 
-  const email = formData.get("email") as string;
+  const email = (formData.get("email") as string)?.trim();
   const password = formData.get("password") as string;
   const fullName = formData.get("full_name") as string;
   const role = formData.get("role") as string | null;
+
+  if (!email || !password) {
+    redirect(`/signup?error=${encodeURIComponent("Email and password are required")}`);
+  }
 
   const { error } = await supabase.auth.signUp({
     email,
