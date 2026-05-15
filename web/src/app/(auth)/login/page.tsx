@@ -1,8 +1,8 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { signIn } from '../actions';
 import AuthCard from '@/components/auth/AuthCard';
 import Field from '@/components/auth/Field';
@@ -10,15 +10,43 @@ import SocialButton from '@/components/auth/SocialButton';
 import Divider from '@/components/auth/Divider';
 import Logo from '@/components/auth/Logo';
 import Icon from '@/components/primitives/Icon';
+import { createClient } from '@/lib/supabase/client';
 
 function LoginForm() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const errorParam = searchParams.get('error');
+  const codeParam = searchParams.get('code');
+
+  useEffect(() => {
+    if (!codeParam) return;
+    const supabase = createClient();
+    supabase.auth.exchangeCodeForSession(codeParam).then(({ error }) => {
+      if (error) {
+        console.error('[LOGIN] exchangeCodeForSession failed', error.message);
+        router.replace(`/login?error=${encodeURIComponent(error.message)}`);
+      } else {
+        console.log('[LOGIN] session established via ?code=, redirecting to /home');
+        router.replace('/home');
+      }
+    });
+  }, [codeParam, router]);
 
   const [role, setRole] = useState<'student' | 'mentor'>('student');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
+
+  if (codeParam) {
+    return (
+      <AuthCard>
+        <div style={{ textAlign: 'center', padding: '48px 0' }}>
+          <Logo size={36} />
+          <p style={{ marginTop: 24, color: 'var(--text-secondary)', fontSize: 14 }}>Completing sign-in…</p>
+        </div>
+      </AuthCard>
+    );
+  }
 
   return (
     <AuthCard>

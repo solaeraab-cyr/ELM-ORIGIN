@@ -11,11 +11,10 @@ interface SocialButtonProps {
 export default function SocialButton({ provider }: SocialButtonProps) {
   const handleClick = async () => {
     const supabase = createClient();
+    const redirectTo = `${window.location.origin}/auth/callback`;
     await supabase.auth.signInWithOAuth({
       provider,
-      options: {
-        redirectTo: "https://elm-slrb.vercel.app/auth/callback",
-      },
+      options: { redirectTo },
     });
   };
 
