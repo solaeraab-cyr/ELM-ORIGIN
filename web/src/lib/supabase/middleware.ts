@@ -41,6 +41,8 @@ export async function updateSession(request: NextRequest) {
     "/maintenance",
     "/session-expired",
     "/legal",
+    "/auth/callback",
+    "/callback",
   ];
   const isPublic =
     PUBLIC_EXACT.has(pathname) ||

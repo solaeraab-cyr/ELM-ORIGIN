@@ -16,7 +16,7 @@ export async function signUp(formData: FormData) {
     redirect(`/signup?error=${encodeURIComponent("Email and password are required")}`);
   }
 
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
@@ -28,6 +28,23 @@ export async function signUp(formData: FormData) {
     redirect(`/signup?error=${encodeURIComponent(error.message)}`);
   }
 
+  // Create profile immediately if session is available (email confirmation disabled)
+  if (data.session && data.user) {
+    await supabase.from("profiles").upsert(
+      {
+        id: data.user.id,
+        email: data.user.email ?? email,
+        full_name: fullName ?? email.split("@")[0],
+        tier: "free",
+        plan: "Free",
+        is_mentor: role === "mentor",
+      },
+      { onConflict: "id", ignoreDuplicates: true }
+    );
+    revalidatePath("/", "layout");
+    redirect("/home");
+  }
+
   redirect("/check-email");
 }
 
@@ -37,14 +54,31 @@ export async function signIn(formData: FormData) {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
     redirect(`/login?error=${encodeURIComponent(error.message)}`);
   }
 
+  // Ensure profile exists for email/password users
+  if (data.user) {
+    await supabase.from("profiles").upsert(
+      {
+        id: data.user.id,
+        email: data.user.email ?? email,
+        full_name:
+          data.user.user_metadata?.full_name ??
+          data.user.user_metadata?.name ??
+          email.split("@")[0],
+        tier: "free",
+        plan: "Free",
+      },
+      { onConflict: "id", ignoreDuplicates: true }
+    );
+  }
+
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect("/home");
 }
 
 export async function signOut() {
