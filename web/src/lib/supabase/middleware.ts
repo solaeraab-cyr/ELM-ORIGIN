@@ -2,6 +2,8 @@ import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
 export async function updateSession(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -24,11 +26,17 @@ export async function updateSession(request: NextRequest) {
   );
 
   // Refresh session — do not remove this line
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  // Redirect unauthenticated users away from protected routes.
-  // Public routes: the marketing landing, auth pages, mentor onboarding, utility/legal pages.
-  const { pathname } = request.nextUrl;
+  console.log("[PROXY]", pathname, {
+    hasUser: !!user,
+    userId: user?.id,
+    cookieNames: request.cookies.getAll().map((c) => c.name),
+  });
+
+  // Public routes: marketing landing, auth pages, mentor onboarding, utility/legal pages.
   const PUBLIC_EXACT = new Set(["/"]);
   const PUBLIC_PREFIXES = [
     "/login",
@@ -42,6 +50,7 @@ export async function updateSession(request: NextRequest) {
     "/session-expired",
     "/legal",
     "/auth/callback",
+    "/auth", // catch any /auth/* path
     "/callback",
   ];
   const isPublic =
@@ -49,6 +58,7 @@ export async function updateSession(request: NextRequest) {
     PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 
   if (!user && !isPublic) {
+    console.log("[PROXY] redirecting to /login (no user, not public)", pathname);
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

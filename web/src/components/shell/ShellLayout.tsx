@@ -12,7 +12,8 @@ interface ShellLayoutProps {
 export default async function ShellLayout({ children }: ShellLayoutProps) {
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  console.log('[SHELL_LAYOUT]', { hasUser: !!user, userId: user?.id, userError: userError?.message });
   if (!user) redirect('/login');
 
   const { data: profile } = await supabase
