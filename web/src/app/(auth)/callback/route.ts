@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServerClient } from "@supabase/ssr";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -7,11 +7,32 @@ export async function GET(request: NextRequest) {
   const next = searchParams.get("next") ?? "/home";
 
   if (code) {
-    const supabase = await createClient();
+    const redirectUrl = `${origin}${next}`;
+    const response = NextResponse.redirect(redirectUrl);
+
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              response.cookies.set(name, value, options)
+            );
+          },
+        },
+      }
+    );
+
     const { error } = await supabase.auth.exchangeCodeForSession(code);
+
     if (!error) {
-      // Upsert profile for new OAuth users
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (user) {
         await supabase.from("profiles").upsert(
           {
@@ -29,11 +50,13 @@ export async function GET(request: NextRequest) {
           { onConflict: "id", ignoreDuplicates: true }
         );
       }
-      return NextResponse.redirect(`${origin}${next}`);
+      return response;
     }
   }
 
   return NextResponse.redirect(
-    `${origin}/login?error=${encodeURIComponent("Authentication failed. Please try again.")}`
+    `${origin}/login?error=${encodeURIComponent(
+      "Authentication failed. Please try again."
+    )}`
   );
 }
