@@ -1,3 +1,7 @@
+'use client';
+
+import { createClient } from '@/lib/supabase/client';
+
 type Provider = 'google' | 'apple';
 
 interface SocialButtonProps {
@@ -5,9 +9,20 @@ interface SocialButtonProps {
 }
 
 export default function SocialButton({ provider }: SocialButtonProps) {
+  const handleClick = async () => {
+    const supabase = createClient();
+    await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+  };
+
   return (
     <button
       type="button"
+      onClick={handleClick}
       style={{
         width: '100%', height: 48,
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
