@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Avatar, Icon } from '@/components/primitives';
 import BookingFlow from '@/components/booking/BookingFlow';
 import { INTERVIEW_COACHES, PEER_POOL, INTERVIEW_UPCOMING, COMPANIES, type Coach } from '@/lib/interviews';
 import type { Mentor } from '@/lib/mentors';
+import InterviewManager from '@/components/interviews/InterviewManager';
+import { createClient as createBrowserClient } from '@/lib/supabase/client';
 
 function StatCard({ label, value, sub, highlight, accent }: { label: string; value: string; sub: string; highlight?: boolean; accent?: 'amber' | 'brand' }) {
   const color = accent === 'amber' ? 'var(--amber-500)' : accent === 'brand' ? 'var(--brand-500)' : 'var(--text-primary)';
@@ -382,6 +384,14 @@ export default function InterviewsPage() {
   const [coachListOpen, setCoachListOpen] = useState(false);
   const [bookingCoach, setBookingCoach] = useState<Coach | null>(null);
   const [groupConfigOpen, setGroupConfigOpen] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabase = createBrowserClient();
+    supabase.auth.getUser().then(({ data }) => {
+      setCurrentUserId(data.user?.id ?? null);
+    });
+  }, []);
 
   // Adapter: Coach → Mentor shape so BookingFlow can reuse
   const coachToMentor = (c: Coach): Mentor => ({
@@ -417,6 +427,9 @@ export default function InterviewsPage() {
         <StatCard label="Current streak"  value="6"  sub="wins in a row" accent="amber" />
         <StatCard label="Global rank"     value="#412" sub="top 4% this month" accent="brand" />
       </div>
+
+      {/* Interview manager (DB-backed) */}
+      <InterviewManager currentUserId={currentUserId} />
 
       {/* Two pillars */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, marginBottom: 48 }}>

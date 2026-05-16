@@ -5,8 +5,94 @@ import { useRouter } from 'next/navigation';
 import { Avatar, Icon } from '@/components/primitives';
 import dynamic from 'next/dynamic';
 import { useVideoRoom } from '@/components/video/useVideoRoom';
+import { getInterview, completeInterview } from '@/app/actions/interviews';
 
 const VideoRoom = dynamic(() => import('@/components/video/VideoRoom'), { ssr: false });
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type InterviewMeta = {
+  id: string;
+  type: 'peer' | 'group' | 'coach';
+  status: 'pending' | 'active' | 'completed' | 'cancelled';
+  config: { topic?: string; scheduled_for?: string } & Record<string, unknown>;
+  initiator?: { full_name: string | null; avatar_url: string | null } | null;
+  partner?: { full_name: string | null; avatar_url: string | null } | null;
+} | null;
+
+function Countdown({ target }: { target: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const diff = Math.max(0, Math.floor((new Date(target).getTime() - now) / 1000));
+  const d = Math.floor(diff / 86400);
+  const h = Math.floor((diff % 86400) / 3600);
+  const m = Math.floor((diff % 3600) / 60);
+  const s = diff % 60;
+  return (
+    <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 32, fontWeight: 600, color: 'var(--text-primary)' }}>
+      {d > 0 && <>{d}d </>}
+      {String(h).padStart(2, '0')}:{String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}
+    </div>
+  );
+}
+
+function NotFoundView() {
+  const router = useRouter();
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
+      <div style={{ maxWidth: 420, textAlign: 'center' }}>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>🔎</div>
+        <h1 style={{ fontFamily: 'Fraunces, serif', fontSize: 32, fontWeight: 500, marginBottom: 10 }}>Interview not found</h1>
+        <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 24 }}>It may have been cancelled or never existed.</p>
+        <button
+          onClick={() => router.push('/interviews')}
+          style={{ height: 44, padding: '0 22px', borderRadius: 999, background: 'var(--gradient-brand)', color: '#fff', fontSize: 14, fontWeight: 600 }}
+        >
+          Back to interviews
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function WaitingView({ meta }: { meta: NonNullable<InterviewMeta> }) {
+  const router = useRouter();
+  const scheduled = meta.config?.scheduled_for;
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
+      <div style={{ maxWidth: 520, textAlign: 'center', background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 20, padding: 36 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 10 }}>{meta.type === 'coach' ? 'Coach session' : meta.type === 'group' ? 'Group interview' : 'Peer interview'}</div>
+        <h1 style={{ fontFamily: 'Fraunces, serif', fontSize: 36, fontWeight: 500, marginBottom: 8 }}>
+          {meta.config?.topic ?? 'Interview'}
+        </h1>
+        <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 24 }}>
+          Starts in
+        </p>
+        {scheduled && <Countdown target={scheduled} />}
+        <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 14 }}>
+          Scheduled for {scheduled ? new Date(scheduled).toLocaleString() : 'TBD'}
+        </p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 26 }}>
+          <button
+            onClick={() => router.push('/interviews')}
+            style={{ height: 40, padding: '0 18px', borderRadius: 999, background: 'var(--bg-hover)', border: '1px solid var(--border-subtle)', fontSize: 13, fontWeight: 500 }}
+          >
+            Back
+          </button>
+          <button
+            onClick={() => window.location.reload()}
+            style={{ height: 40, padding: '0 18px', borderRadius: 999, background: 'var(--gradient-brand)', color: '#fff', fontSize: 13, fontWeight: 600 }}
+          >
+            Start now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type Phase = 'live' | 'feedback' | 'done';
 
@@ -93,7 +179,20 @@ export default function PeerInterviewPage({ params }: { params: Promise<{ id: st
   const [elapsed, setElapsed] = useState(0);
   const [role, setRole] = useState<'interviewer' | 'candidate'>('interviewer');
   const [scratch, setScratch] = useState('');
+  const [meta, setMeta] = useState<InterviewMeta>(undefined as unknown as InterviewMeta);
+  const [metaLoaded, setMetaLoaded] = useState(false);
   const video = useVideoRoom(`interview-${id}`, 'You');
+
+  useEffect(() => {
+    if (!UUID_RE.test(id)) {
+      setMetaLoaded(true);
+      return;
+    }
+    getInterview(id).then((m) => {
+      setMeta(m as InterviewMeta);
+      setMetaLoaded(true);
+    });
+  }, [id]);
 
   useEffect(() => {
     if (phase !== 'live') return;
@@ -110,7 +209,22 @@ export default function PeerInterviewPage({ params }: { params: Promise<{ id: st
 
   const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
-  if (phase === 'feedback') return <FeedbackScreen onSubmit={() => setPhase('done')} />;
+  // DB-backed flow: if id is a UUID and the record is gone → 404
+  if (UUID_RE.test(id) && metaLoaded && meta === null) return <NotFoundView />;
+  // Waiting state for scheduled interviews in the future
+  if (UUID_RE.test(id) && metaLoaded && meta && meta.status === 'pending') {
+    const sched = meta.config?.scheduled_for;
+    if (sched && new Date(sched).getTime() > Date.now() + 60_000) {
+      return <WaitingView meta={meta} />;
+    }
+  }
+
+  if (phase === 'feedback') return <FeedbackScreen onSubmit={async () => {
+    if (UUID_RE.test(id)) {
+      await completeInterview(id, 82, { rated_at: new Date().toISOString() });
+    }
+    setPhase('done');
+  }} />;
   if (phase === 'done') return <DoneScreen onDone={() => router.push('/interviews')} />;
 
   return (
@@ -122,7 +236,11 @@ export default function PeerInterviewPage({ params }: { params: Promise<{ id: st
         </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ padding: '4px 10px', borderRadius: 999, background: 'rgba(16,185,129,0.10)', color: 'var(--mint-600)', fontSize: 11, fontWeight: 600 }}>● Live · {fmt(elapsed)}</span>
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Peer · #{id}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+            {meta?.type ? meta.type.charAt(0).toUpperCase() + meta.type.slice(1) : 'Peer'}
+            {meta?.config?.topic ? ` · ${meta.config.topic}` : ''}
+            {!meta && ` · #${id.slice(0, 8)}`}
+          </span>
         </div>
         <div style={{ display: 'flex', gap: 4, padding: 3, background: 'var(--bg-base)', borderRadius: 999, border: '1px solid var(--border-subtle)' }}>
           {(['interviewer', 'candidate'] as const).map(r => (
