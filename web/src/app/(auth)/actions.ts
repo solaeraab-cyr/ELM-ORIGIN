@@ -35,7 +35,6 @@ export async function signUp(formData: FormData) {
         id: data.user.id,
         email: data.user.email ?? email,
         full_name: fullName ?? email.split("@")[0],
-        tier: "free",
         plan: "Free",
         is_mentor: role === "mentor",
       },
@@ -70,7 +69,6 @@ export async function signIn(formData: FormData) {
           data.user.user_metadata?.full_name ??
           data.user.user_metadata?.name ??
           email.split("@")[0],
-        tier: "free",
         plan: "Free",
       },
       { onConflict: "id", ignoreDuplicates: true }

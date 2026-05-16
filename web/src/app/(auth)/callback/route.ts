@@ -76,7 +76,6 @@ export async function GET(request: NextRequest) {
           user.email?.split("@")[0] ??
           "",
         avatar_url: user.user_metadata?.avatar_url ?? null,
-        tier: "free",
         plan: "Free",
       },
       { onConflict: "id", ignoreDuplicates: true }
