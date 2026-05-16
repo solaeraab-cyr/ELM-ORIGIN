@@ -3,16 +3,39 @@
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 
+// Schema mapping (live DB → legacy UI shape, via PostgREST aliases):
+//   visibility         → community (UI used 'world'/'mentors'/etc as community names; now mapped to visibility values)
+//   tags (text[])      → tag (UI uses single tag; we take tags[0])
+//   like_count         → likes_count
+//   comment_count      → replies_count
+//   reposts/bookmarks columns do not exist in the live DB.
+
 export async function listPosts(community = 'world', limit = 50) {
   const supabase = await createClient();
-  let q = supabase
-    .from('posts')
-    .select('*, author:profiles!author_id(*)')
-    .order('created_at', { ascending: false })
-    .limit(limit);
-  if (community !== 'world') q = q.eq('community', community);
-  const { data } = await q;
-  return data ?? [];
+  try {
+    let q = supabase
+      .from('posts')
+      .select(
+        'id, content, community:visibility, tags, likes_count:like_count, replies_count:comment_count, created_at, author:profiles!author_id(*)'
+      )
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (community !== 'world') q = q.eq('visibility', community);
+    const { data, error } = await q;
+    if (error) {
+      console.error('[listPosts]', error.message);
+      return [];
+    }
+    return (data ?? []).map((p) => ({
+      ...p,
+      tag: Array.isArray(p.tags) && p.tags.length > 0 ? p.tags[0] : null,
+      reposts_count: 0,
+      bookmarks_count: 0,
+    }));
+  } catch (err) {
+    console.error('[listPosts] threw', err);
+    return [];
+  }
 }
 
 export async function createPost(input: { content: string; community: string; tag?: string | null }) {
@@ -24,8 +47,8 @@ export async function createPost(input: { content: string; community: string; ta
     .insert({
       author_id: user.id,
       content: input.content,
-      community: input.community,
-      tag: input.tag ?? null,
+      visibility: input.community,
+      tags: input.tag ? [input.tag] : [],
     })
     .select()
     .single();
@@ -38,7 +61,9 @@ export async function togglePostInteraction(postId: string, type: 'like' | 'repo
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not signed in');
-  const countField = type === 'like' ? 'likes_count' : type === 'repost' ? 'reposts_count' : 'bookmarks_count';
+  // Only 'like' is backed by a real column (like_count); repost/bookmark are no-ops.
+  if (type !== 'like') return true;
+
   const { data: existing } = await supabase
     .from('post_interactions')
     .select('post_id')
@@ -49,23 +74,13 @@ export async function togglePostInteraction(postId: string, type: 'like' | 'repo
 
   if (existing) {
     await supabase.from('post_interactions').delete().eq('post_id', postId).eq('user_id', user.id).eq('type', type);
-    await supabase.rpc('decrement_post_count', { p_id: postId, p_field: countField }).then(
-      () => {},
-      async () => {
-        const { data: p } = await supabase.from('posts').select(countField).eq('id', postId).single();
-        await supabase.from('posts').update({ [countField]: Math.max(0, ((p as Record<string, number> | null)?.[countField] ?? 0) - 1) }).eq('id', postId);
-      },
-    );
+    const { data: p } = await supabase.from('posts').select('like_count').eq('id', postId).single();
+    await supabase.from('posts').update({ like_count: Math.max(0, (p?.like_count ?? 0) - 1) }).eq('id', postId);
     return false;
   }
   await supabase.from('post_interactions').insert({ post_id: postId, user_id: user.id, type });
-  await supabase.rpc('increment_post_count', { p_id: postId, p_field: countField }).then(
-    () => {},
-    async () => {
-      const { data: p } = await supabase.from('posts').select(countField).eq('id', postId).single();
-      await supabase.from('posts').update({ [countField]: ((p as Record<string, number> | null)?.[countField] ?? 0) + 1 }).eq('id', postId);
-    },
-  );
+  const { data: p } = await supabase.from('posts').select('like_count').eq('id', postId).single();
+  await supabase.from('posts').update({ like_count: (p?.like_count ?? 0) + 1 }).eq('id', postId);
   return true;
 }
 
@@ -73,17 +88,21 @@ export async function listMyInteractions(postIds: string[]) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user || postIds.length === 0) return {} as Record<string, Set<string>>;
-  const { data } = await supabase
-    .from('post_interactions')
-    .select('post_id, type')
-    .eq('user_id', user.id)
-    .in('post_id', postIds);
-  const map: Record<string, Set<string>> = {};
-  for (const i of data ?? []) {
-    map[i.post_id] = map[i.post_id] || new Set();
-    map[i.post_id].add(i.type);
+  try {
+    const { data } = await supabase
+      .from('post_interactions')
+      .select('post_id, type')
+      .eq('user_id', user.id)
+      .in('post_id', postIds);
+    const map: Record<string, Set<string>> = {};
+    for (const i of data ?? []) {
+      map[i.post_id] = map[i.post_id] || new Set();
+      map[i.post_id].add(i.type);
+    }
+    return map;
+  } catch {
+    return {};
   }
-  return map;
 }
 
 export async function addComment(postId: string, content: string) {
@@ -92,16 +111,21 @@ export async function addComment(postId: string, content: string) {
   if (!user) throw new Error('Not signed in');
   const { data, error } = await supabase.from('comments').insert({ post_id: postId, author_id: user.id, content }).select().single();
   if (error) throw error;
-  await supabase.rpc('increment_post_count', { p_id: postId, p_field: 'replies_count' }).then(() => {}, () => {});
+  const { data: p } = await supabase.from('posts').select('comment_count').eq('id', postId).single();
+  await supabase.from('posts').update({ comment_count: (p?.comment_count ?? 0) + 1 }).eq('id', postId);
   return data;
 }
 
 export async function listComments(postId: string) {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from('comments')
-    .select('*, author:profiles!author_id(*)')
-    .eq('post_id', postId)
-    .order('created_at');
-  return data ?? [];
+  try {
+    const { data } = await supabase
+      .from('comments')
+      .select('*, author:profiles!author_id(*)')
+      .eq('post_id', postId)
+      .order('created_at');
+    return data ?? [];
+  } catch {
+    return [];
+  }
 }

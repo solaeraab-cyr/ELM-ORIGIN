@@ -54,12 +54,24 @@ function SignupForm() {
       return;
     }
     // Auto sign-in (works when email confirmation is disabled in Supabase).
-    const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
-    if (signInErr) {
+    const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInErr || !signInData?.user) {
       // Confirmation required — send user to check-email.
       window.location.href = '/check-email';
       return;
     }
+    // Best-effort profile upsert so role/full_name/is_mentor land in the row.
+    await supabase.from('profiles').upsert(
+      {
+        id: signInData.user.id,
+        email,
+        full_name: fullName || email.split('@')[0],
+        role,
+        is_mentor: role === 'mentor',
+        plan: 'Free',
+      },
+      { onConflict: 'id', ignoreDuplicates: false }
+    );
     window.location.href = '/home';
   };
 

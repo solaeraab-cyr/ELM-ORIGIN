@@ -1,8 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════
--- Elm Origin — Seed data
--- ───────────────────────────────────────────────────────────────
--- RUN ORDER: apply 003_align_profiles_schema.sql FIRST, then this.
--- Safe to re-run — all inserts use ON CONFLICT DO NOTHING.
+-- Elm Origin — Seed data (matches the live DB schema)
+-- Idempotent: re-runnable without errors.
 -- ═══════════════════════════════════════════════════════════════
 
 do $$
@@ -17,7 +15,7 @@ declare
   r3 uuid := '22222222-2222-2222-2222-222222220003';
 begin
 
-  -- ── auth.users (must exist before profiles) ──────────────────
+  -- ── auth.users (required so profile FKs hold) ────────────────
   insert into auth.users (
     id, instance_id, aud, role, email, encrypted_password,
     email_confirmed_at, created_at, updated_at,
@@ -51,76 +49,88 @@ begin
   on conflict (id) do nothing;
 
   -- ── profiles ──────────────────────────────────────────────────
-  -- Uses only columns guaranteed to exist after 003_align_profiles_schema.sql
-  insert into public.profiles (id, email, full_name, handle, plan, is_mentor, bio)
+  -- Columns per the live schema: id, email, role, full_name, handle,
+  -- plan, is_mentor, bio, avatar_url, streak, xp.
+  insert into public.profiles (id, email, role, full_name, handle, plan, is_mentor, bio)
   values
-    (m1, 'sarah.chen@elm-seed.example',  'Dr. Sarah Chen',   'sarahchen',   'Free', true,
+    (m1, 'sarah.chen@elm-seed.example',  'mentor', 'Dr. Sarah Chen',   'sarahchen',   'Free', true,
      'Stanford CS PhD with 10 years of teaching experience in Machine Learning.'),
-    (m2, 'raj.patel@elm-seed.example',   'Prof. Raj Patel',  'rajpatel',    'Free', true,
+    (m2, 'raj.patel@elm-seed.example',   'mentor', 'Prof. Raj Patel',  'rajpatel',    'Free', true,
      'IIT Delhi graduate specialising in algorithms and competitive programming.'),
-    (m3, 'maria.garcia@elm-seed.example','Maria Garcia',     'mariag',      'Free', true,
+    (m3, 'maria.garcia@elm-seed.example','mentor', 'Maria Garcia',     'mariag',      'Free', true,
      'Senior Software Engineer at Google focused on system design and architecture.'),
-    (m4, 'james.wilson@elm-seed.example','James Wilson',     'jameswil',    'Free', true,
+    (m4, 'james.wilson@elm-seed.example','mentor', 'James Wilson',     'jameswil',    'Free', true,
      'Full-stack developer and mentor with expertise in React, Node, and Postgres.'),
-    (m5, 'anita.sharma@elm-seed.example','Anita Sharma',     'anitasharma', 'Free', true,
+    (m5, 'anita.sharma@elm-seed.example','mentor', 'Anita Sharma',     'anitasharma', 'Free', true,
      'Data Scientist with 8 years of industry experience in ML and statistics.')
   on conflict (id) do nothing;
 
   -- ── mentor_profiles ───────────────────────────────────────────
+  -- Columns per the live schema: id, user_id (FK→profiles.id),
+  -- bio, expertise (text[]), hourly_rate, languages (text[]),
+  -- timezone, availability_status, total_reviews, avg_rating,
+  -- total_sessions, ...
   insert into public.mentor_profiles (
-    id, headline, bio, primary_field,
-    rating, total_reviews, total_sessions, accepting_bookings
+    user_id, bio, expertise, hourly_rate, languages, timezone,
+    availability_status, total_reviews, avg_rating, total_sessions
   ) values
-    (m1, 'Stanford CS PhD — 10 yrs teaching ML',
-     'Helping students master ML fundamentals with clarity and confidence.',
-     'Machine Learning', 4.9, 124, 320, true),
-    (m2, 'IIT Delhi — Algorithms specialist',
-     'Algorithms, data structures, and competitive programming made intuitive.',
-     'Algorithms', 4.8, 98, 280, true),
-    (m3, 'Senior SWE @ Google — System Design',
-     'System design interviews and scalable architecture, demystified.',
-     'System Design', 4.95, 156, 410, true),
-    (m4, 'Full-stack engineer & mentor',
-     'From React to Postgres — end-to-end web development coaching.',
-     'Web Development', 4.7, 72, 190, true),
-    (m5, 'Data Scientist — 8 yrs experience',
-     'Hands-on data science: modelling, visualisation, and production pipelines.',
-     'Data Science', 4.85, 88, 240, true)
-  on conflict (id) do nothing;
-
-  -- ── rooms ─────────────────────────────────────────────────────
-  insert into public.rooms (id, topic, subject, host_id, mode, visibility, max_participants, is_active)
-  values
-    (r1, 'JavaScript Study Group', 'Web Development',  m4, 'discussion', 'public', 10, true),
-    (r2, 'Math Problem Solving',   'Mathematics',      m2, 'focus',      'public',  8, true),
-    (r3, 'Python ML Lab',          'Machine Learning', m1, 'collab',     'public', 15, true)
-  on conflict (id) do nothing;
-
-  -- Host as participant
-  insert into public.room_participants (room_id, user_id, role) values
-    (r1, m4, 'host'),
-    (r2, m2, 'host'),
-    (r3, m1, 'host')
+    (m1, 'Helping students master ML fundamentals with clarity and confidence.',
+     array['Machine Learning','Deep Learning','Python'], 75,
+     array['English'], 'America/Los_Angeles', 'available', 124, 4.9, 320),
+    (m2, 'Algorithms, data structures, and competitive programming made intuitive.',
+     array['Algorithms','Data Structures','C++'], 60,
+     array['English','Hindi'], 'Asia/Kolkata', 'available', 98, 4.8, 280),
+    (m3, 'System design interviews and scalable architecture, demystified.',
+     array['System Design','Distributed Systems','Interview Prep'], 90,
+     array['English','Spanish'], 'America/New_York', 'available', 156, 4.95, 410),
+    (m4, 'From React to Postgres — end-to-end web development coaching.',
+     array['Web Development','React','Node.js'], 55,
+     array['English'], 'Europe/London', 'available', 72, 4.7, 190),
+    (m5, 'Hands-on data science: modelling, visualisation, and production pipelines.',
+     array['Data Science','Statistics','Pandas'], 70,
+     array['English','Hindi'], 'Asia/Kolkata', 'available', 88, 4.85, 240)
   on conflict do nothing;
 
+  -- ── rooms ─────────────────────────────────────────────────────
+  -- Columns per the live schema: id, creator_id, title, subject,
+  -- description, duration_minutes, max_participants, is_public,
+  -- requires_approval, room_type, scheduled_for, status.
+  insert into public.rooms (
+    id, creator_id, title, subject, description, duration_minutes,
+    max_participants, is_public, requires_approval, room_type, status
+  ) values
+    (r1, m4, 'JavaScript Study Group', 'Web Development',
+     'Daily live practice and code reviews. Drop in any time.',
+     60, 10, true, false, 'discussion', 'active'),
+    (r2, m2, 'Math Problem Solving',   'Mathematics',
+     'Focused work block on advanced calculus problems.',
+     45, 8, true, false, 'focus', 'active'),
+    (r3, m1, 'Python ML Lab',          'Machine Learning',
+     'Hands-on ML projects — bring a notebook and questions.',
+     90, 15, true, false, 'collab', 'active')
+  on conflict (id) do nothing;
+
   -- ── posts ─────────────────────────────────────────────────────
-  insert into public.posts (id, author_id, community, content, tag, likes_count, replies_count)
+  -- Columns per the live schema: id, author_id, content, visibility,
+  -- tags (text[]), like_count, comment_count, image_urls (text[]),
+  -- is_pinned.
+  insert into public.posts (id, author_id, content, visibility, tags, like_count, comment_count)
   values
-    ('33333333-3333-3333-3333-333333330001', m1, 'world',
+    ('33333333-3333-3333-3333-333333330001', m1,
      'Just wrapped a session on gradient descent — love seeing the lightbulb moments!',
-     'ML', 24, 3),
-    ('33333333-3333-3333-3333-333333330002', m3, 'world',
+     'world', array['ML','teaching'], 24, 3),
+    ('33333333-3333-3333-3333-333333330002', m3,
      'System design tip: always start with the requirements, not the architecture.',
-     'Interview', 41, 7),
-    ('33333333-3333-3333-3333-333333330003', m2, 'world',
+     'world', array['Interview','SystemDesign'], 41, 7),
+    ('33333333-3333-3333-3333-333333330003', m2,
      'New problem set on dynamic programming just dropped. Who''s joining the session?',
-     'Algorithms', 18, 5),
-    ('33333333-3333-3333-3333-333333330004', m4, 'world',
+     'world', array['Algorithms','DP'], 18, 5),
+    ('33333333-3333-3333-3333-333333330004', m4,
      'React 19 server actions changed how I think about forms. Worth a deep dive.',
-     'Web', 33, 9),
-    ('33333333-3333-3333-3333-333333330005', m5, 'world',
+     'world', array['Web','React'], 33, 9),
+    ('33333333-3333-3333-3333-333333330005', m5,
      'Reminder: clean data beats clever models. Every. Single. Time.',
-     'Data', 56, 12)
+     'world', array['Data','MLOps'], 56, 12)
   on conflict (id) do nothing;
 
 end $$;
