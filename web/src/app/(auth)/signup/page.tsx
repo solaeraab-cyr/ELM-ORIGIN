@@ -72,6 +72,16 @@ function SignupForm() {
       },
       { onConflict: 'id', ignoreDuplicates: false }
     );
+    // Fire-and-forget welcome email — silently skipped if Resend is not configured.
+    fetch('/api/email/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: email,
+        template: 'welcome',
+        data: { userName: fullName || email.split('@')[0], email },
+      }),
+    }).catch(() => {/* ignore */});
     window.location.href = '/home';
   };
 
