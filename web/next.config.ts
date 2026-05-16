@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   async headers() {
@@ -23,4 +24,10 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  silent: true,
+  // Skip source-map upload when DSN is not configured (no auth token available)
+  sourcemaps: {
+    disable: !process.env.NEXT_PUBLIC_SENTRY_DSN,
+  },
+});

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, Figtree, Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import { GateProvider } from "@/components/gate/GateContext";
+import PostHogProvider from "@/components/analytics/PostHogProvider";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -77,7 +78,9 @@ export default function RootLayout({
       className={`${fraunces.variable} ${figtree.variable} ${instrumentSans.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col font-sans">
-        <GateProvider>{children}</GateProvider>
+        <PostHogProvider>
+          <GateProvider>{children}</GateProvider>
+        </PostHogProvider>
       </body>
     </html>
   );
