@@ -3,6 +3,10 @@
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Avatar, Icon } from '@/components/primitives';
+import dynamic from 'next/dynamic';
+import { useVideoRoom } from '@/components/video/useVideoRoom';
+
+const VideoRoom = dynamic(() => import('@/components/video/VideoRoom'), { ssr: false });
 
 type Phase = 'live' | 'feedback' | 'done';
 
@@ -89,6 +93,7 @@ export default function PeerInterviewPage({ params }: { params: Promise<{ id: st
   const [elapsed, setElapsed] = useState(0);
   const [role, setRole] = useState<'interviewer' | 'candidate'>('interviewer');
   const [scratch, setScratch] = useState('');
+  const video = useVideoRoom(`interview-${id}`, 'You');
 
   useEffect(() => {
     if (phase !== 'live') return;
@@ -159,7 +164,19 @@ export default function PeerInterviewPage({ params }: { params: Promise<{ id: st
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <button style={{ height: 38, padding: '0 14px', borderRadius: 8, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', fontSize: 12 }}><Icon name="mic" size={13} /> Muted</button>
-            <button style={{ height: 38, padding: '0 14px', borderRadius: 8, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', fontSize: 12 }}><Icon name="video" size={13} /> Camera off</button>
+            <button
+              onClick={video.joinVideo}
+              disabled={video.loading}
+              title={!process.env.NEXT_PUBLIC_LIVEKIT_URL ? 'Video calling coming soon' : 'Join video call'}
+              style={{
+                height: 38, padding: '0 14px', borderRadius: 8, fontSize: 12,
+                background: video.open ? 'rgba(79,70,229,0.10)' : 'var(--bg-surface)',
+                border: `1px solid ${video.open ? 'rgba(79,70,229,0.3)' : 'var(--border-subtle)'}`,
+                color: video.open ? 'var(--brand-500, #4f46e5)' : 'var(--text-primary)',
+                fontWeight: video.open ? 600 : 400,
+                opacity: video.loading ? 0.6 : 1,
+              }}
+            >🎥 {video.loading ? '…' : video.open ? 'In video' : 'Join video'}</button>
             <button style={{ height: 38, padding: '0 14px', borderRadius: 8, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', fontSize: 12 }}>Pass to partner</button>
             <div style={{ flex: 1 }} />
             <button
@@ -167,6 +184,14 @@ export default function PeerInterviewPage({ params }: { params: Promise<{ id: st
               style={{ height: 38, padding: '0 16px', borderRadius: 8, background: '#ef4444', color: '#fff', fontSize: 13, fontWeight: 600 }}
             >End interview</button>
           </div>
+          {video.open && (
+            <VideoRoom
+              roomName={`interview-${id}`}
+              userName="You"
+              token={video.token}
+              onLeave={video.leaveVideo}
+            />
+          )}
         </div>
 
         {/* Right panel */}

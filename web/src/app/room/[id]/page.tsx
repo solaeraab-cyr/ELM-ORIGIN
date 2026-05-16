@@ -8,6 +8,10 @@ import LiveRoomChat from '@/components/rooms/LiveRoomChat';
 import { useGate } from '@/components/gate/GateContext';
 import { useRealtimePresence } from '@/hooks/useRealtimeSubscription';
 import { createClient } from '@/lib/supabase/client';
+import dynamic from 'next/dynamic';
+import { useVideoRoom } from '@/components/video/useVideoRoom';
+
+const VideoRoom = dynamic(() => import('@/components/video/VideoRoom'), { ssr: false });
 
 const fmt = (s: number) => {
   const m = Math.floor(s / 60), sec = s % 60;
@@ -51,6 +55,7 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
   const [seconds, setSeconds] = useState(0);
   const [livePresence, setLivePresence] = useState<PresenceMeta[]>([]);
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
+  const video = useVideoRoom(roomId, me?.name ?? 'Anon');
 
   useEffect(() => {
     const supabase = createClient();
@@ -225,6 +230,18 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
               border: '1px solid ' + (isSharing ? 'transparent' : 'var(--border-default)'),
             }}
           >🖥 {isSharing ? 'Sharing' : 'Share'}</button>
+          <button
+            onClick={video.joinVideo}
+            disabled={video.loading}
+            title={!process.env.NEXT_PUBLIC_LIVEKIT_URL ? 'Video calling coming soon' : 'Join video call'}
+            style={{
+              height: 42, padding: '0 14px', borderRadius: 12, fontSize: 13, fontWeight: 600,
+              background: video.open ? 'var(--gradient-brand)' : 'var(--bg-base)',
+              color: video.open ? '#fff' : 'var(--text-secondary)',
+              border: '1px solid ' + (video.open ? 'transparent' : 'var(--border-default)'),
+              opacity: video.loading ? 0.6 : 1,
+            }}
+          >🎥 {video.loading ? '…' : 'Video'}</button>
         </div>
 
         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -245,6 +262,15 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
 
       {chatOpen && (
         <LiveRoomChat roomId={roomId} currentUserId={me?.id} onClose={() => setChatOpen(false)} />
+      )}
+
+      {video.open && (
+        <VideoRoom
+          roomName={roomId}
+          userName={me?.name ?? 'Anon'}
+          token={video.token}
+          onLeave={video.leaveVideo}
+        />
       )}
 
       {leave && (
