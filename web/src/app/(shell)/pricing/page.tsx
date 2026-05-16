@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 type PlanId = 'Free' | 'Pro' | 'Elite';
@@ -100,22 +101,10 @@ function CellVal({ val, accent }: { val: string | boolean; accent?: boolean }) {
   return <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{val}</span>;
 }
 
-function Toast({ msg }: { msg: string }) {
-  return (
-    <div style={{
-      position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
-      zIndex: 200, padding: '13px 22px', borderRadius: 999,
-      background: '#1B2B8E', color: '#fff',
-      fontSize: 13, fontWeight: 600, boxShadow: '0 8px 32px rgba(27,43,142,0.35)',
-      whiteSpace: 'nowrap', animation: 'fadeUp 0.2s ease',
-    }}>{msg}</div>
-  );
-}
-
 export default function PricingPage() {
+  const router = useRouter();
   const [userPlan, setUserPlan] = useState<PlanId | null>(null);
   const [loadingPlan, setLoadingPlan] = useState(true);
-  const [toast, setToast] = useState<string | null>(null);
   const [faqOpen, setFaqOpen] = useState<number | null>(null);
 
   useEffect(() => {
@@ -134,13 +123,8 @@ export default function PricingPage() {
     });
   }, []);
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
-  };
-
-  const handleUpgrade = () => {
-    showToast('Payment integration coming soon!');
+  const handleUpgrade = (planId: PlanId) => {
+    router.push(`/pricing/checkout?plan=${planId.toLowerCase()}`);
   };
 
   const userPlanIndex = userPlan ? PLAN_ORDER.indexOf(userPlan) : -1;
@@ -162,7 +146,6 @@ export default function PricingPage() {
   return (
     <div style={{ padding: '32px 40px 80px', maxWidth: 1100, margin: '0 auto' }}>
       <style>{`
-        @keyframes fadeUp { from { opacity:0; transform:translateX(-50%) translateY(8px) } to { opacity:1; transform:translateX(-50%) translateY(0) } }
         @keyframes pulse  { 0%,100% { opacity:1 } 50% { opacity:0.5 } }
       `}</style>
 
@@ -251,7 +234,7 @@ export default function PricingPage() {
                 <div style={{ width: '100%', height: 48, borderRadius: 999, background: 'var(--bg-hover)', animation: 'pulse 1.5s ease-in-out infinite' }} />
               ) : (
                 <button
-                  onClick={upgrade ? handleUpgrade : undefined}
+                  onClick={upgrade ? () => handleUpgrade(plan.id) : undefined}
                   disabled={current}
                   style={{
                     width: '100%', height: 48, borderRadius: 999, fontSize: 14, fontWeight: 600,
@@ -337,7 +320,6 @@ export default function PricingPage() {
         ))}
       </div>
 
-      {toast && <Toast msg={toast} />}
     </div>
   );
 }
