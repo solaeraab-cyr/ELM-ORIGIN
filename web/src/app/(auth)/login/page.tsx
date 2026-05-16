@@ -3,7 +3,6 @@
 import { Suspense, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { signIn } from '../actions';
 import AuthCard from '@/components/auth/AuthCard';
 import Field from '@/components/auth/Field';
 import SocialButton from '@/components/auth/SocialButton';
@@ -36,6 +35,27 @@ function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    if (submitting) return;
+    if (!email || !password) {
+      setFormError('Email and password are required');
+      return;
+    }
+    setSubmitting(true);
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setFormError(error.message);
+      setSubmitting(false);
+      return;
+    }
+    window.location.href = '/home';
+  };
 
   if (codeParam) {
     return (
@@ -81,13 +101,13 @@ function LoginForm() {
         {role === 'mentor' ? 'Sign in to your mentor dashboard.' : 'Pick up where you left off.'}
       </p>
 
-      {errorParam && (
+      {(formError || errorParam) && (
         <div style={{ background: 'var(--danger-100)', border: '1px solid rgba(225,29,72,0.20)', color: 'var(--danger-600)', padding: '12px 14px', borderRadius: 12, fontSize: 13, marginBottom: 18 }}>
-          {decodeURIComponent(errorParam)}
+          {formError ?? decodeURIComponent(errorParam!)}
         </div>
       )}
 
-      <form action={signIn} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {/* Hidden role field */}
         <input type="hidden" name="role" value={role} />
 
@@ -120,7 +140,7 @@ function LoginForm() {
           </div>
         </div>
 
-        <button type="submit" style={{
+        <button type="submit" disabled={submitting} style={{
           width: '100%', height: 48, borderRadius: 999,
           background: 'var(--gradient-brand)', color: '#fff',
           fontFamily: 'Inter, system-ui', fontWeight: 600, fontSize: 15,
@@ -128,11 +148,10 @@ function LoginForm() {
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           transition: 'all 220ms var(--ease-smooth)',
           marginTop: 8,
-        }}
-          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 10px 26px rgba(27,43,142,0.36)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(27,43,142,0.30)'; }}
-        >
-          Log in <Icon name="chevronR" size={14} />
+          cursor: submitting ? 'wait' : 'pointer',
+          opacity: submitting ? 0.7 : 1,
+        }}>
+          {submitting ? 'Signing in…' : <>Log in <Icon name="chevronR" size={14} /></>}
         </button>
       </form>
 
