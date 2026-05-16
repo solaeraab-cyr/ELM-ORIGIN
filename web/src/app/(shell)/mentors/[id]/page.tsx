@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState, use } from 'react';
+import { useEffect, useRef, useState, use, useTransition } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Avatar, Icon } from '@/components/primitives';
 import BookingFlow from '@/components/booking/BookingFlow';
 import { getMentor, type Mentor } from '@/lib/mentors';
 import { toast } from '@/lib/toast';
+import { sendFriendRequest } from '@/app/actions/friends';
 
 const MENTOR_REVIEWS = [
   { id: 1, name: 'Ananya R.', stars: 5, date: 'Apr 2026', text: 'Priya broke down eigenvalues better than my prof. Walked through 3 worked examples and gave me practice problems for homework.', helpful: 18 },
@@ -51,6 +52,8 @@ function MentorDetail({ mentor }: { mentor: Mentor }) {
   const [showFloat, setShowFloat] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [prefill, setPrefill] = useState<SlotPick | null>(null);
+  const [friendSent, setFriendSent] = useState(false);
+  const [sendingFriend, startFriendSend] = useTransition();
   const heroRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -98,6 +101,17 @@ function MentorDetail({ mentor }: { mentor: Mentor }) {
             style={{ height: 32, padding: '0 12px', borderRadius: 999, background: 'transparent', fontSize: 13, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4 }}
           >
             <span style={{ color: saved ? '#f43f5e' : 'inherit' }}>{saved ? '♥' : '♡'}</span> {saved ? 'Saved' : 'Save'}
+          </button>
+          <button
+            disabled={sendingFriend || friendSent}
+            onClick={() => startFriendSend(async () => {
+              const res = await sendFriendRequest(String(m.id));
+              if (res.ok) { setFriendSent(true); toast('Friend request sent!'); }
+              else { toast(res.error ?? 'Could not send request'); }
+            })}
+            style={{ height: 32, padding: '0 12px', borderRadius: 999, fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4, background: friendSent ? 'var(--bg-hover)' : 'transparent', color: friendSent ? 'var(--brand-500)' : 'var(--text-secondary)', border: friendSent ? '1px solid var(--border-subtle)' : 'none', cursor: sendingFriend || friendSent ? 'default' : 'pointer', opacity: sendingFriend ? 0.6 : 1 }}
+          >
+            <Icon name="users" size={13} /> {sendingFriend ? '…' : friendSent ? 'Request sent' : 'Add Friend'}
           </button>
           <button
             onClick={() => { if (typeof navigator !== 'undefined') { navigator.clipboard?.writeText(`https://elmorigin.app/m/${m.id}`); toast('Link copied'); } }}

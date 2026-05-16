@@ -4,6 +4,7 @@ export const NAV_ITEMS = [
   { id: 'interviews',   label: 'Interviews',   icon: 'interviews',   href: '/interviews' },
   { id: 'productivity', label: 'Productivity', icon: 'productivity', href: '/productivity' },
   { id: 'community',    label: 'Community',    icon: 'community',    href: '/community' },
+  { id: 'friends',      label: 'Friends',      icon: 'users',        href: '/friends' },
 ] as const;
 
 export const MENTOR_NAV_ITEMS = [

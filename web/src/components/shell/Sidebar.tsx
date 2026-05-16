@@ -19,9 +19,10 @@ interface Profile {
 interface SidebarProps {
   isMentor: boolean;
   user: Profile;
+  pendingFriendRequests?: number;
 }
 
-export default function Sidebar({ isMentor, user }: SidebarProps) {
+export default function Sidebar({ isMentor, user, pendingFriendRequests = 0 }: SidebarProps) {
   const pathname = usePathname();
   const NAV = isMentor ? MENTOR_NAV_ITEMS : NAV_ITEMS;
   const isFree = user.plan === 'Free';
@@ -75,7 +76,16 @@ export default function Sidebar({ isMentor, user }: SidebarProps) {
               <span style={{ color: active ? 'var(--brand-500)' : 'currentColor', transition: 'color 220ms' }}>
                 <Icon name={item.icon as IconName} size={18} />
               </span>
-              <span>{item.label}</span>
+              <span style={{ flex: 1 }}>{item.label}</span>
+              {item.id === 'friends' && pendingFriendRequests > 0 && (
+                <span style={{
+                  minWidth: 18, height: 18, borderRadius: 999, padding: '0 5px',
+                  background: 'var(--gradient-brand)', color: '#fff',
+                  fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {pendingFriendRequests > 99 ? '99+' : pendingFriendRequests}
+                </span>
+              )}
             </Link>
           );
         })}

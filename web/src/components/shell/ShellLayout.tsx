@@ -16,11 +16,10 @@ export default async function ShellLayout({ children }: ShellLayoutProps) {
   console.log('[SHELL_LAYOUT]', { hasUser: !!user, userId: user?.id, userError: userError?.message });
   if (!user) redirect('/login');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('full_name, handle, plan, is_mentor, streak')
-    .eq('id', user.id)
-    .single();
+  const [{ data: profile }, { count: pendingCount }] = await Promise.all([
+    supabase.from('profiles').select('full_name, handle, plan, is_mentor, streak').eq('id', user.id).single(),
+    supabase.from('friends').select('*', { count: 'exact', head: true }).eq('receiver_id', user.id).eq('status', 'pending'),
+  ]);
 
   const safeProfile = {
     id: user.id,
@@ -33,7 +32,7 @@ export default async function ShellLayout({ children }: ShellLayoutProps) {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
-      <Sidebar isMentor={safeProfile.is_mentor} user={safeProfile} />
+      <Sidebar isMentor={safeProfile.is_mentor} user={safeProfile} pendingFriendRequests={pendingCount ?? 0} />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
         <TopBar user={safeProfile} />
