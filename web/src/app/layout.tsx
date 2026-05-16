@@ -25,9 +25,45 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
 });
 
+const BASE_URL = 'https://elmorigin.com';
+
 export const metadata: Metadata = {
-  title: "Elm Origin — Learn. Connect. Evolve.",
-  description: "Your premium study workspace. Study rooms, AI mentoring, peer interviews, and expert mentors — all in one place.",
+  metadataBase: new URL(BASE_URL),
+  title: {
+    default: 'ELM Origin — Learn. Connect. Grow.',
+    template: '%s — ELM Origin',
+  },
+  description: 'AI-powered study environment with live rooms, mentors, and interview prep.',
+  keywords: ['study rooms', 'peer interviews', 'AI tutor', 'mentors', 'education', 'ELM Origin'],
+  authors: [{ name: 'ELM Origin' }],
+  creator: 'ELM Origin',
+  openGraph: {
+    type: 'website',
+    locale: 'en_IN',
+    url: BASE_URL,
+    siteName: 'ELM Origin',
+    title: 'ELM Origin — Learn. Connect. Grow.',
+    description: 'AI-powered study environment with live rooms, mentors, and interview prep.',
+    images: [
+      {
+        url: '/elm-origin-logo.png',
+        width: 1200,
+        height: 630,
+        alt: 'ELM Origin',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'ELM Origin — Learn. Connect. Grow.',
+    description: 'AI-powered study environment with live rooms, mentors, and interview prep.',
+    images: ['/elm-origin-logo.png'],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true },
+  },
 };
 
 export default function RootLayout({

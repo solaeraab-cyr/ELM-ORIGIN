@@ -1,0 +1,23 @@
+User-agent: *
+Allow: /
+
+# Public pages
+Allow: /legal/privacy
+Allow: /legal/terms
+Allow: /mentors
+Allow: /pricing
+
+# Disallow authenticated-only areas
+Disallow: /home
+Disallow: /profile
+Disallow: /settings
+Disallow: /nova
+Disallow: /community
+Disallow: /interviews
+Disallow: /productivity
+Disallow: /notifications
+Disallow: /room/
+Disallow: /mentor/
+Disallow: /my-sessions
+
+Sitemap: https://elmorigin.com/sitemap.xml
