@@ -41,7 +41,7 @@ export default async function ShellLayout({ children }: ShellLayoutProps) {
         </main>
       </div>
 
-      <MobileBottomNav isMentor={safeProfile.is_mentor} />
+      <MobileBottomNav isMentor={safeProfile.is_mentor} pendingFriendRequests={pendingCount ?? 0} />
     </div>
   );
 }
