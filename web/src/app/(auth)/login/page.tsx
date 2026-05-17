@@ -17,15 +17,18 @@ function LoginForm() {
   const errorParam = searchParams.get('error');
   const codeParam = searchParams.get('code');
 
+  const [exchanging, setExchanging] = useState(!!codeParam);
+
   useEffect(() => {
     if (!codeParam) return;
+    setExchanging(true);
     const supabase = createClient();
     supabase.auth.exchangeCodeForSession(codeParam).then(({ error }) => {
       if (error) {
         console.error('[LOGIN] exchangeCodeForSession failed', error.message);
+        setExchanging(false);
         router.replace(`/login?error=${encodeURIComponent(error.message)}`);
       } else {
-        console.log('[LOGIN] session established via ?code=, redirecting to /home');
         router.replace('/home');
       }
     });
@@ -35,29 +38,32 @@ function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleLogin = async () => {
     setFormError(null);
-    if (submitting) return;
     if (!email || !password) {
       setFormError('Email and password are required');
       return;
     }
-    setSubmitting(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setFormError(error.message);
-      setSubmitting(false);
-      return;
+    setLoading(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setFormError(error.message);
+        return;
+      }
+      router.push('/home');
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Sign-in failed');
+    } finally {
+      setLoading(false);
     }
-    window.location.href = '/home';
   };
 
-  if (codeParam) {
+  if (exchanging) {
     return (
       <AuthCard>
         <div style={{ textAlign: 'center', padding: '48px 0' }}>
@@ -107,10 +113,7 @@ function LoginForm() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {/* Hidden role field */}
-        <input type="hidden" name="role" value={role} />
-
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <Field
           icon="mail"
           type="email"
@@ -140,7 +143,7 @@ function LoginForm() {
           </div>
         </div>
 
-        <button type="submit" disabled={submitting} style={{
+        <button type="button" onClick={handleLogin} style={{
           width: '100%', height: 48, borderRadius: 999,
           background: 'var(--gradient-brand)', color: '#fff',
           fontFamily: 'Inter, system-ui', fontWeight: 600, fontSize: 15,
@@ -148,12 +151,11 @@ function LoginForm() {
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           transition: 'all 220ms var(--ease-smooth)',
           marginTop: 8,
-          cursor: submitting ? 'wait' : 'pointer',
-          opacity: submitting ? 0.7 : 1,
+          cursor: loading ? 'wait' : 'pointer',
         }}>
-          {submitting ? 'Signing in…' : <>Log in <Icon name="chevronR" size={14} /></>}
+          {loading ? 'Signing in…' : <>Log in <Icon name="chevronR" size={14} /></>}
         </button>
-      </form>
+      </div>
 
       <Divider />
       <SocialButton provider="google" />

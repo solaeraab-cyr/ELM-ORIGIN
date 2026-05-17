@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import AuthCard from '@/components/auth/AuthCard';
 import Field from '@/components/auth/Field';
 import SocialButton from '@/components/auth/SocialButton';
@@ -13,6 +13,7 @@ import Icon from '@/components/primitives/Icon';
 import { createClient } from '@/lib/supabase/client';
 
 function SignupForm() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const errorParam = searchParams.get('error');
 
@@ -23,7 +24,7 @@ function SignupForm() {
   const [emailErr, setEmailErr] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const validateEmail = (e: React.FocusEvent<HTMLInputElement>) => {
@@ -33,56 +34,88 @@ function SignupForm() {
     setEmailValid(v && ok ? true : null);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleContinue = async () => {
     setFormError(null);
-    if (submitting) return;
     if (!email || !password) {
       setFormError('Email and password are required');
       return;
     }
-    setSubmitting(true);
-    const supabase = createClient();
-    const { error: signUpErr } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: fullName, is_mentor: role === 'mentor' } },
-    });
-    if (signUpErr) {
-      setFormError(signUpErr.message);
-      setSubmitting(false);
-      return;
-    }
-    // Auto sign-in (works when email confirmation is disabled in Supabase).
-    const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
-    if (signInErr || !signInData?.user) {
-      // Confirmation required — send user to check-email.
-      window.location.href = '/check-email';
-      return;
-    }
-    // Best-effort profile upsert so role/full_name/is_mentor land in the row.
-    await supabase.from('profiles').upsert(
-      {
-        id: signInData.user.id,
+    setLoading(true);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase.auth.signUp({
         email,
-        full_name: fullName || email.split('@')[0],
-        role,
-        is_mentor: role === 'mentor',
-        plan: 'Free',
-      },
-      { onConflict: 'id', ignoreDuplicates: false }
-    );
-    // Fire-and-forget welcome email — silently skipped if Resend is not configured.
-    fetch('/api/email/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to: email,
-        template: 'welcome',
-        data: { userName: fullName || email.split('@')[0], email },
-      }),
-    }).catch(() => {/* ignore */});
-    window.location.href = '/home';
+        password,
+        options: { data: { full_name: fullName, role, is_mentor: role === 'mentor' } },
+      });
+
+      if (error) {
+        const msg = error.message || '';
+        if (/disabled/i.test(msg)) {
+          setFormError('Please enable email signups in the Supabase dashboard (Authentication → Providers → Email).');
+        } else {
+          setFormError(msg);
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Case (e): user is created AND a session was issued (email confirmation off)
+      if (data.user && data.session) {
+        await supabase.from('profiles').upsert(
+          {
+            id: data.user.id,
+            email,
+            full_name: fullName || email.split('@')[0],
+            role,
+            is_mentor: role === 'mentor',
+            plan: 'Free',
+          },
+          { onConflict: 'id', ignoreDuplicates: false }
+        );
+        fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: email,
+            template: 'welcome',
+            data: { userName: fullName || email.split('@')[0], email },
+          }),
+        }).catch(() => {});
+        router.push('/home');
+        return;
+      }
+
+      // Case (f): user created but no session — confirmation required.
+      // Try to sign in directly in case confirmation is actually off but session
+      // just wasn't returned with signUp.
+      if (data.user && !data.session) {
+        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
+        if (!signInErr && signInData.user) {
+          await supabase.from('profiles').upsert(
+            {
+              id: signInData.user.id,
+              email,
+              full_name: fullName || email.split('@')[0],
+              role,
+              is_mentor: role === 'mentor',
+              plan: 'Free',
+            },
+            { onConflict: 'id', ignoreDuplicates: false }
+          );
+          router.push('/home');
+          return;
+        }
+        router.push('/check-email');
+        return;
+      }
+
+      setFormError('Sign-up did not complete. Please try again.');
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Sign-up failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -125,9 +158,7 @@ function SignupForm() {
       </div>
       <Divider />
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <input type="hidden" name="role" value={role} />
-
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <Field
           icon="user"
           name="full_name"
@@ -167,7 +198,7 @@ function SignupForm() {
           <StrengthMeter pw={password} />
         </div>
 
-        <button type="submit" disabled={submitting} style={{
+        <button type="button" onClick={handleContinue} style={{
           width: '100%', height: 48, borderRadius: 999,
           background: 'var(--gradient-brand)', color: '#fff',
           fontFamily: 'Inter, system-ui', fontWeight: 600, fontSize: 15,
@@ -175,12 +206,11 @@ function SignupForm() {
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           transition: 'all 220ms var(--ease-smooth)',
           marginTop: 8,
-          cursor: submitting ? 'wait' : 'pointer',
-          opacity: submitting ? 0.7 : 1,
+          cursor: loading ? 'wait' : 'pointer',
         }}>
-          {submitting ? 'Creating account…' : <>Continue as {role} <Icon name="chevronR" size={14} /></>}
+          {loading ? 'Creating account…' : <>Continue as {role} <Icon name="chevronR" size={14} /></>}
         </button>
-      </form>
+      </div>
 
       <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', marginTop: 14, lineHeight: 1.5 }}>
         By continuing, you agree to our{' '}
