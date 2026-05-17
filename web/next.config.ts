@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline' *.vercel.com *.gstatic.com; " +
               "font-src 'self' *.vercel.com *.gstatic.com *.public.blob.vercel-storage.com data:; " +
               "img-src 'self' data: https:; " +
-              "connect-src 'self' https:; " +
+              "connect-src 'self' https: wss://*.supabase.co wss://mkwvfhxymjttmvmavfiy.supabase.co; " +
               "frame-ancestors 'self';",
           },
         ],
