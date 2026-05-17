@@ -10,12 +10,18 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     const supabase = createClient();
 
+    const isPkceNoise = (msg: string) => /pkce|code verifier/i.test(msg);
+
     const finish = async () => {
       const url = new URL(window.location.href);
       const errorDescription =
         url.searchParams.get('error_description') || url.searchParams.get('error');
 
       if (errorDescription) {
+        if (isPkceNoise(errorDescription)) {
+          router.replace('/login');
+          return;
+        }
         router.replace(`/login?error=${encodeURIComponent(errorDescription)}`);
         return;
       }
@@ -27,6 +33,17 @@ export default function AuthCallbackPage() {
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) {
+          if (isPkceNoise(error.message)) {
+            // The implicit-flow hash may still have produced a session via
+            // detectSessionInUrl — check before bailing.
+            const { data: { session: maybe } } = await supabase.auth.getSession();
+            if (maybe) {
+              router.replace('/home');
+              return;
+            }
+            router.replace('/login');
+            return;
+          }
           router.replace(`/login?error=${encodeURIComponent(error.message)}`);
           return;
         }
@@ -37,7 +54,7 @@ export default function AuthCallbackPage() {
 
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        router.replace('/login?error=Sign-in%20failed');
+        router.replace('/login');
         return;
       }
 

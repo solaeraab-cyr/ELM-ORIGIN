@@ -14,8 +14,20 @@ import { createClient } from '@/lib/supabase/client';
 function LoginForm() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const errorParam = searchParams.get('error');
+  const errorParamRaw = searchParams.get('error');
   const codeParam = searchParams.get('code');
+
+  // Suppress Supabase's PKCE false-alarm error in the URL. The OAuth callback
+  // already established a session via the implicit flow hash; this stale
+  // ?error= is from Supabase's server-side PKCE attempt and is not actionable.
+  const isPkceFalseAlarm = !!errorParamRaw && /pkce|code verifier/i.test(decodeURIComponent(errorParamRaw));
+  const errorParam = isPkceFalseAlarm ? null : errorParamRaw;
+
+  useEffect(() => {
+    if (isPkceFalseAlarm) {
+      window.history.replaceState({}, '', '/login');
+    }
+  }, [isPkceFalseAlarm]);
 
   const [exchanging, setExchanging] = useState(!!codeParam);
 
@@ -27,7 +39,12 @@ function LoginForm() {
       if (error) {
         console.error('[LOGIN] exchangeCodeForSession failed', error.message);
         setExchanging(false);
-        router.replace(`/login?error=${encodeURIComponent(error.message)}`);
+        // PKCE verifier failures are noise — drop the user back on a clean /login.
+        if (/pkce|code verifier/i.test(error.message)) {
+          router.replace('/login');
+        } else {
+          router.replace(`/login?error=${encodeURIComponent(error.message)}`);
+        }
       } else {
         router.replace('/home');
       }

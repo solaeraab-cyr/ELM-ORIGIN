@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import AuthCard from '@/components/auth/AuthCard';
@@ -15,7 +15,15 @@ import { createClient } from '@/lib/supabase/client';
 function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const errorParam = searchParams.get('error');
+  const errorParamRaw = searchParams.get('error');
+  const isPkceFalseAlarm = !!errorParamRaw && /pkce|code verifier/i.test(decodeURIComponent(errorParamRaw));
+  const errorParam = isPkceFalseAlarm ? null : errorParamRaw;
+
+  useEffect(() => {
+    if (isPkceFalseAlarm) {
+      window.history.replaceState({}, '', '/signup');
+    }
+  }, [isPkceFalseAlarm]);
 
   const [role, setRole] = useState<'student' | 'mentor'>('student');
   const [fullName, setFullName] = useState('');
