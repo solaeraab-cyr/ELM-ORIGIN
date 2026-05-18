@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fraunces, Figtree, Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import { GateProvider } from "@/components/gate/GateContext";
 import PostHogProvider from "@/components/analytics/PostHogProvider";
@@ -65,6 +65,12 @@ export const metadata: Metadata = {
     follow: true,
     googleBot: { index: true, follow: true },
   },
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({
