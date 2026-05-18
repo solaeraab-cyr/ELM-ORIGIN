@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+// OAuth callback handler. The browser navigates here after Google → Supabase
+// with `?code=...`. We exchange the code for a session server-side, reading
+// the PKCE `code_verifier` from the cookies the browser already holds (set on
+// the client by signInWithOAuth before the redirect; SameSite=Lax delivers
+// them on the top-level navigation back).
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
@@ -8,18 +13,10 @@ export async function GET(request: NextRequest) {
   const errorParam = searchParams.get("error");
   const errorDescription = searchParams.get("error_description");
 
-  console.log("[CALLBACK /callback] hit", {
-    origin,
-    hasCode: !!code,
-    next,
-    errorParam,
-    errorDescription,
-  });
-
   if (errorParam) {
     return NextResponse.redirect(
       `${origin}/login?error=${encodeURIComponent(
-        errorDescription || errorParam || "OAuth failed"
+        errorDescription || errorParam
       )}`
     );
   }
@@ -42,13 +39,7 @@ export async function GET(request: NextRequest) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, {
-              ...options,
-              path: options?.path ?? "/",
-              sameSite: options?.sameSite ?? "lax",
-              secure: options?.secure ?? true,
-              httpOnly: options?.httpOnly ?? true,
-            });
+            response.cookies.set(name, value, options);
           });
         },
       },
@@ -58,7 +49,6 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
-    console.error("[CALLBACK /callback] exchange failed", error.message);
     return NextResponse.redirect(
       `${origin}/login?error=${encodeURIComponent(error.message)}`
     );

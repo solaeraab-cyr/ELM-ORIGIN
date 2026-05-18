@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState, useEffect } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import AuthCard from '@/components/auth/AuthCard';
@@ -14,42 +14,7 @@ import { createClient } from '@/lib/supabase/client';
 function LoginForm() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const errorParamRaw = searchParams.get('error');
-  const codeParam = searchParams.get('code');
-
-  // Suppress Supabase's PKCE false-alarm error in the URL. The OAuth callback
-  // already established a session via the implicit flow hash; this stale
-  // ?error= is from Supabase's server-side PKCE attempt and is not actionable.
-  const isPkceFalseAlarm = !!errorParamRaw && /pkce|code verifier/i.test(decodeURIComponent(errorParamRaw));
-  const errorParam = isPkceFalseAlarm ? null : errorParamRaw;
-
-  useEffect(() => {
-    if (isPkceFalseAlarm) {
-      window.history.replaceState({}, '', '/login');
-    }
-  }, [isPkceFalseAlarm]);
-
-  const [exchanging, setExchanging] = useState(!!codeParam);
-
-  useEffect(() => {
-    if (!codeParam) return;
-    setExchanging(true);
-    const supabase = createClient();
-    supabase.auth.exchangeCodeForSession(codeParam).then(({ error }) => {
-      if (error) {
-        console.error('[LOGIN] exchangeCodeForSession failed', error.message);
-        setExchanging(false);
-        // PKCE verifier failures are noise — drop the user back on a clean /login.
-        if (/pkce|code verifier/i.test(error.message)) {
-          router.replace('/login');
-        } else {
-          router.replace(`/login?error=${encodeURIComponent(error.message)}`);
-        }
-      } else {
-        router.replace('/home');
-      }
-    });
-  }, [codeParam, router]);
+  const errorParam = searchParams.get('error');
 
   const [role, setRole] = useState<'student' | 'mentor'>('student');
   const [email, setEmail] = useState('');
@@ -79,17 +44,6 @@ function LoginForm() {
       setLoading(false);
     }
   };
-
-  if (exchanging) {
-    return (
-      <AuthCard>
-        <div style={{ textAlign: 'center', padding: '48px 0' }}>
-          <Logo size={36} />
-          <p style={{ marginTop: 24, color: 'var(--text-secondary)', fontSize: 14 }}>Completing sign-in…</p>
-        </div>
-      </AuthCard>
-    );
-  }
 
   return (
     <AuthCard>

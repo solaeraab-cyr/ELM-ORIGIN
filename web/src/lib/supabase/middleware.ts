@@ -51,7 +51,6 @@ export async function updateSession(request: NextRequest) {
     "/legal",
     "/auth/callback",
     "/auth", // catch any /auth/* path
-    "/callback",
   ];
   const isPublic =
     PUBLIC_EXACT.has(pathname) ||
