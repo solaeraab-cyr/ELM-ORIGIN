@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import AuthCard from '@/components/auth/AuthCard';
@@ -14,7 +14,31 @@ import { createClient } from '@/lib/supabase/client';
 function LoginForm() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const errorParam = searchParams.get('error');
+  const errorParamRaw = searchParams.get('error');
+  const isPkceFalseAlarm = !!errorParamRaw && /pkce|code[\s_]verifier/i.test(decodeURIComponent(errorParamRaw));
+  const errorParam = isPkceFalseAlarm ? null : errorParamRaw;
+
+  useEffect(() => {
+    if (isPkceFalseAlarm) {
+      window.history.replaceState({}, '', '/login');
+    }
+  }, [isPkceFalseAlarm]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        router.push('/home');
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        router.push('/home');
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [router]);
 
   const [role, setRole] = useState<'student' | 'mentor'>('student');
   const [email, setEmail] = useState('');
