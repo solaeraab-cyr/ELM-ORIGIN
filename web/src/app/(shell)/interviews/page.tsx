@@ -1,14 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { Avatar, Icon } from '@/components/primitives';
 import BookingFlow from '@/components/booking/BookingFlow';
 import { INTERVIEW_COACHES, PEER_POOL, INTERVIEW_UPCOMING, COMPANIES, type Coach } from '@/lib/interviews';
 import type { Mentor } from '@/lib/mentors';
 import InterviewManager from '@/components/interviews/InterviewManager';
 import { createClient as createBrowserClient } from '@/lib/supabase/client';
+
+type PeerQueueConfig = {
+  type: 'coding' | 'system' | 'behavioral' | 'mixed';
+  level: 'easier' | 'mirror' | 'harder';
+  length: 30 | 45 | 60;
+};
 
 function StatCard({ label, value, sub, highlight, accent }: { label: string; value: string; sub: string; highlight?: boolean; accent?: 'amber' | 'brand' }) {
   const color = accent === 'amber' ? 'var(--amber-500)' : accent === 'brand' ? 'var(--brand-500)' : 'var(--text-primary)';
@@ -79,7 +86,7 @@ function CoachPillar({ onBrowse, onBook }: { onBrowse: () => void; onBook: (c: C
   );
 }
 
-function PeerPillar({ onQueue, onGroupStart }: { onQueue: () => void; onGroupStart: () => void }) {
+function PeerPillar({ onQueue, onGroupStart }: { onQueue: (config: PeerQueueConfig) => void; onGroupStart: () => void }) {
   const [difficulty, setDifficulty] = useState<'easier' | 'mirror' | 'harder'>('mirror');
   const [type, setType] = useState<'coding' | 'system' | 'behavioral' | 'mixed'>('coding');
   const [duration, setDuration] = useState<30 | 45 | 60>(30);
@@ -199,7 +206,7 @@ function PeerPillar({ onQueue, onGroupStart }: { onQueue: () => void; onGroupSta
         </div>
 
         <button
-          onClick={onQueue}
+          onClick={() => onQueue({ type, level: difficulty, length: duration })}
           style={{
             width: '100%', height: 52, borderRadius: 999,
             background: 'linear-gradient(135deg, #A78BFA 0%, #6EE7B7 100%)',
@@ -380,17 +387,138 @@ function PeerMatchingModal({ onCancel, onMatched }: { onCancel: () => void; onMa
 
 export default function InterviewsPage() {
   const router = useRouter();
-  const [matchingOpen, setMatchingOpen] = useState(false);
+  const [matching, setMatching] = useState(false);
+  const [matchSuccess, setMatchSuccess] = useState<{ partnerName: string } | null>(null);
   const [coachListOpen, setCoachListOpen] = useState(false);
   const [bookingCoach, setBookingCoach] = useState<Coach | null>(null);
   const [groupConfigOpen, setGroupConfigOpen] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
+  const supabaseRef = useRef(createBrowserClient());
+  const queueIdRef = useRef<string | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const currentUserIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    const supabase = createBrowserClient();
-    supabase.auth.getUser().then(({ data }) => {
+    supabaseRef.current.auth.getUser().then(({ data }) => {
       setCurrentUserId(data.user?.id ?? null);
+      currentUserIdRef.current = data.user?.id ?? null;
     });
+  }, []);
+
+  const proceedToSession = async (sessionId: string, partnerId: string | null) => {
+    const supabase = supabaseRef.current;
+    let partnerName = 'Your peer';
+    if (partnerId) {
+      const { data: partner } = await supabase
+        .from('profiles')
+        .select('name')
+        .eq('id', partnerId)
+        .single();
+      if (partner?.name) partnerName = partner.name;
+    }
+
+    setMatchSuccess({ partnerName });
+
+    setTimeout(() => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+      queueIdRef.current = null;
+      setMatching(false);
+      setMatchSuccess(null);
+      router.push(`/interview/peer/${sessionId}`);
+    }, 1000);
+  };
+
+  const subscribeToMatch = (queueId: string) => {
+    const supabase = supabaseRef.current;
+    channelRef.current = supabase
+      .channel(`peer-queue-${queueId}`)
+      .on(
+        'postgres_changes' as never,
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'peer_queue',
+          filter: `id=eq.${queueId}`,
+        },
+        async (payload: { new: { status?: string; session_id?: string } }) => {
+          if (payload.new.status === 'matched' && payload.new.session_id) {
+            const { data: session } = await supabase
+              .from('peer_sessions')
+              .select('user_a_id, user_b_id')
+              .eq('id', payload.new.session_id)
+              .single();
+            const me = currentUserIdRef.current;
+            const partnerId = session
+              ? (session.user_a_id === me ? session.user_b_id : session.user_a_id)
+              : null;
+            await proceedToSession(payload.new.session_id, partnerId);
+          }
+        }
+      )
+      .subscribe();
+  };
+
+  const handleQueue = async (config: PeerQueueConfig) => {
+    // Keep existing client-side quota check; server-side quota moves in a later step.
+    if (typeof window !== 'undefined') {
+      const canQueue = (window as unknown as { canQueuePeerInterview?: () => boolean }).canQueuePeerInterview;
+      if (canQueue && !canQueue()) {
+        const openGate = (window as unknown as { openGate?: (k: string, p?: unknown) => void }).openGate;
+        openGate?.('peer-interview-quota');
+        return;
+      }
+    }
+
+    setMatching(true);
+
+    const { data, error } = await supabaseRef.current.rpc('try_match_peer', {
+      p_type: config.type,
+      p_level: config.level,
+      p_length: config.length,
+    });
+
+    if (error) {
+      console.error('Match error:', error);
+      setMatching(false);
+      return;
+    }
+
+    if (data?.status === 'matched') {
+      await proceedToSession(data.session_id, data.partner_id ?? null);
+    } else if (data?.status === 'waiting') {
+      queueIdRef.current = data.queue_id;
+      subscribeToMatch(data.queue_id);
+    } else {
+      setMatching(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    const supabase = supabaseRef.current;
+    await supabase.rpc('cancel_peer_queue');
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+    queueIdRef.current = null;
+    setMatching(false);
+  };
+
+  useEffect(() => {
+    const handleUnload = () => {
+      if (queueIdRef.current) {
+        supabaseRef.current.rpc('cancel_peer_queue');
+      }
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleUnload);
+      if (channelRef.current) supabaseRef.current.removeChannel(channelRef.current);
+    };
   }, []);
 
   // Adapter: Coach → Mentor shape so BookingFlow can reuse
@@ -434,7 +562,7 @@ export default function InterviewsPage() {
       {/* Two pillars */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, marginBottom: 48 }}>
         <CoachPillar onBrowse={() => setCoachListOpen(true)} onBook={c => setBookingCoach(c)} />
-        <PeerPillar onQueue={() => setMatchingOpen(true)} onGroupStart={() => setGroupConfigOpen(true)} />
+        <PeerPillar onQueue={handleQueue} onGroupStart={() => setGroupConfigOpen(true)} />
       </div>
 
       {/* Schedule */}
@@ -503,11 +631,33 @@ export default function InterviewsPage() {
         </div>
       </div>
 
-      {matchingOpen && (
+      {matching && !matchSuccess && (
         <PeerMatchingModal
-          onCancel={() => setMatchingOpen(false)}
-          onMatched={(id) => { setMatchingOpen(false); router.push(`/interview/peer/${id}`); }}
+          onCancel={handleCancel}
+          onMatched={() => { /* real match is driven by Supabase; ignore modal's simulated click */ }}
         />
+      )}
+      {matchSuccess && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 900,
+          background: 'linear-gradient(180deg, #0E1228 0%, #1C2140 100%)',
+          color: '#fff', display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', padding: 40,
+        }}>
+          <div style={{
+            width: 140, height: 140, marginBottom: 28, borderRadius: 999,
+            background: 'linear-gradient(135deg, #A78BFA, #6EE7B7)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: 'Fraunces, serif', fontSize: 60, color: '#0E1228',
+            boxShadow: '0 0 100px rgba(167,139,250,0.50)',
+          }}>
+            {matchSuccess.partnerName.charAt(0).toUpperCase()}
+          </div>
+          <div style={{ color: '#6EE7B7', marginBottom: 8, fontSize: 12, fontWeight: 700, letterSpacing: '0.08em' }}>MATCHED!</div>
+          <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 42, fontWeight: 500 }}>
+            Meet <span style={{ fontStyle: 'italic' }}>{matchSuccess.partnerName}</span>
+          </h2>
+        </div>
       )}
       {coachListOpen && (
         <CoachListModal onClose={() => setCoachListOpen(false)} onBook={c => { setCoachListOpen(false); setBookingCoach(c); }} />
