@@ -272,13 +272,10 @@ function FeaturesSection() {
             One platform. <span style={{ fontStyle: 'italic', color: 'var(--brand-600)' }}>Five superpowers.</span>
           </h2>
         </div>
-        <div className="stagger-in" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 22 }}>
-          {FEATURES.slice(0, 4).map((f) => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 22 }}>
+          {FEATURES.map((f) => (
             <FeatureCard key={f.title} {...f} />
           ))}
-          <div style={{ gridColumn: '1 / -1', maxWidth: 540, margin: '0 auto', width: '100%' }}>
-            <FeatureCard {...FEATURES[4]} />
-          </div>
         </div>
       </div>
     </section>
@@ -287,9 +284,9 @@ function FeaturesSection() {
 
 function FeatureCard({ icon, title, body, accent, special }: { icon: string; title: string; body: string; accent: string; special?: boolean }) {
   return (
-    <div style={{ background: special ? 'linear-gradient(180deg, rgba(16,185,129,0.05) 0%, var(--bg-surface) 30%)' : 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 20, padding: 32, position: 'relative', overflow: 'hidden', transition: 'transform 280ms var(--ease-out-expo), box-shadow 280ms, border-color 280ms' }}
+    <div style={{ background: special ? 'linear-gradient(180deg, rgba(16,185,129,0.05) 0%, var(--bg-surface) 30%)' : 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 20, padding: 32, boxShadow: 'var(--shadow-sm)', position: 'relative', overflow: 'hidden', transition: 'transform 280ms var(--ease-out-expo), box-shadow 280ms, border-color 280ms' }}
       onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = 'var(--shadow-lg)'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'var(--shadow-sm)'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
     >
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: accent }}/>
       <div style={{ width: 48, height: 48, borderRadius: 12, background: special ? 'var(--mint-100)' : 'var(--brand-50)', color: special ? 'var(--mint-700)' : 'var(--brand-600)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 18 }}>
@@ -347,21 +344,20 @@ const MENTORS = [
 ];
 
 function MentorShowcase() {
-  const [paused, setPaused] = useState(false);
   return (
-    <section id="mentors" style={{ padding: '96px 0', background: 'var(--bg-base)' }}>
-      <div style={{ maxWidth: 1180, margin: '0 auto', padding: '0 24px', textAlign: 'center', marginBottom: 48 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.12em', color: 'var(--brand-400)', marginBottom: 14, textTransform: 'uppercase' }}>MENTORS</div>
-        <h2 style={{ fontFamily: 'Fraunces, serif', fontWeight: 700, fontSize: 'clamp(28px, 4.5vw, 40px)', letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
-          Real people. <span style={{ fontStyle: 'italic', color: 'var(--brand-600)' }}>Real outcomes.</span>
-        </h2>
-      </div>
-      <div className="marquee-mask" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
-        <div className="marquee-track" style={{ animationPlayState: paused ? 'paused' : 'running' }}>
-          {[...MENTORS, ...MENTORS].map((m, i) => (
-            <div key={i} style={{ flexShrink: 0, width: 220, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 18, padding: 22, transition: 'transform 240ms, box-shadow 240ms', cursor: 'pointer' }}
+    <section id="mentors" style={{ padding: '96px 24px', background: 'var(--bg-base)' }}>
+      <div style={{ maxWidth: 1180, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: 48 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.12em', color: 'var(--brand-400)', marginBottom: 14, textTransform: 'uppercase' }}>MENTORS</div>
+          <h2 style={{ fontFamily: 'Fraunces, serif', fontWeight: 700, fontSize: 'clamp(28px, 4.5vw, 40px)', letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
+            Real people. <span style={{ fontStyle: 'italic', color: 'var(--brand-600)' }}>Real outcomes.</span>
+          </h2>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 22 }}>
+          {MENTORS.map((m, i) => (
+            <div key={i} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 18, padding: 22, boxShadow: 'var(--shadow-sm)', transition: 'transform 240ms, box-shadow 240ms', cursor: 'pointer' }}
               onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = 'var(--shadow-lg)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'var(--shadow-sm)'; }}
             >
               <Avatar name={m.name} size={64} tint={m.tint} />
               <div style={{ marginTop: 12, fontFamily: 'Inter', fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{m.name}</div>
