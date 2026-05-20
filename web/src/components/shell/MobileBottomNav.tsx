@@ -17,10 +17,10 @@ export default function MobileBottomNav({ isMentor, pendingFriendRequests = 0 }:
 
   return (
     <nav
+      className="flex md:hidden"
       style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 20,
         height: 64,
-        display: 'flex',
         alignItems: 'center',
         background: 'rgba(248,249,255,0.92)',
         backdropFilter: 'blur(20px)',
@@ -28,7 +28,6 @@ export default function MobileBottomNav({ isMentor, pendingFriendRequests = 0 }:
         borderTop: '1px solid var(--border-subtle)',
         paddingBottom: 'env(safe-area-inset-bottom)',
       }}
-      className="md:hidden"
     >
       {NAV.map((item) => {
         const active = pathname === item.href || pathname.startsWith(item.href + '/');
