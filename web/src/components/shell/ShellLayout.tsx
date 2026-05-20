@@ -31,12 +31,15 @@ export default async function ShellLayout({ children }: ShellLayoutProps) {
   };
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-base)' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)' }}>
       <Sidebar isMentor={safeProfile.is_mentor} user={safeProfile} pendingFriendRequests={pendingCount ?? 0} />
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+      <div
+        className="pl-0 pb-16 md:pl-[232px] md:pb-0"
+        style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', minWidth: 0 }}
+      >
         <TopBar user={safeProfile} />
-        <main style={{ flex: 1, overflowY: 'auto', paddingBottom: 80 }}>
+        <main style={{ flex: 1, overflowY: 'auto' }}>
           {children}
         </main>
       </div>

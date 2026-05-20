@@ -30,27 +30,24 @@ export default function Sidebar({ isMentor, user, pendingFriendRequests = 0 }: S
 
   return (
     <aside
+      className="hidden md:flex fixed inset-y-0 left-0"
       style={{
         width: 232,
         flexShrink: 0,
         background: 'var(--bg-sidebar)',
         borderRight: '1px solid var(--border-subtle)',
-        display: 'flex',
         flexDirection: 'column',
         padding: '28px 18px',
-        height: '100vh',
-        position: 'sticky',
-        top: 0,
+        zIndex: 10,
       }}
-      className="hidden md:flex"
     >
       {/* Logo */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 6px 32px' }}>
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10, padding: '4px 6px 32px' }}>
         <Image src="/elm-origin-logo.png" alt="Elm Origin" height={32} width={120} style={{ height: 32, width: 'auto' }} priority />
       </div>
 
       {/* Nav */}
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+      <nav style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {NAV.map((item) => {
           const active = pathname === item.href || pathname.startsWith(item.href + '/');
           return (
@@ -92,7 +89,7 @@ export default function Sidebar({ isMentor, user, pendingFriendRequests = 0 }: S
       </nav>
 
       {/* Bottom: streak + upgrade + profile */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
         {/* Streak card */}
         <div style={{ borderRadius: 14, padding: 14, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
