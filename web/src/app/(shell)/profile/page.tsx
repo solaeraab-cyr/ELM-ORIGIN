@@ -143,8 +143,8 @@ export default function ProfilePage() {
       </div>
 
       {/* Avatar row */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: -44, marginBottom: 18 }}>
-        <div style={{ borderRadius: 999, boxShadow: '0 0 0 4px var(--bg-base)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: -48, marginBottom: 18, position: 'relative', zIndex: 1 }}>
+        <div style={{ position: 'relative', zIndex: 1, borderRadius: 999, boxShadow: '0 0 0 6px var(--bg-base)' }}>
           {loading ? <Skeleton w={96} h={96} r={999} /> : <Avatar name={saved.name || email} size={96} />}
         </div>
         {!edit && !loading && (
