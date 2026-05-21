@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Avatar, Icon } from '@/components/primitives';
 import { useRealtimeTable } from '@/hooks/useRealtimeSubscription';
 import {
@@ -9,12 +9,21 @@ import {
   listRsvpedEventIds,
   toggleEventRsvp,
 } from '@/app/actions/community';
+import {
+  createPost,
+  listFollowingPosts,
+  listLatestPosts,
+  listTrendingPosts,
+  listFollowedIds,
+  toggleFollow,
+  type FeedPost,
+} from '@/app/actions/feeds';
 import { toast } from '@/lib/toast';
 
 type UserShape = { name: string; handle: string; plan: 'Free' | 'Pro' | 'Elite' };
 
 type Post = {
-  id: number;
+  id: string;
   user: UserShape;
   community: string;
   communityLabel: string;
@@ -26,6 +35,14 @@ type Post = {
   threadReplies: { user: UserShape; body: string; time: string; likes: number }[];
 };
 
+type Tab = 'for-you' | 'following' | 'trending' | 'latest';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'for-you',   label: 'For you'   },
+  { id: 'following', label: 'Following' },
+  { id: 'trending',  label: 'Trending'  },
+  { id: 'latest',    label: 'Latest'    },
+];
+
 const COMMUNITIES = [
   { id: 'world', label: 'World Feed', icon: '🌐', members: 12400, joined: true },
   { id: 'jee',   label: 'JEE Mains',  icon: '⚡', members: 4820,  joined: true },
@@ -35,25 +52,7 @@ const COMMUNITIES = [
   { id: 'gre',   label: 'GRE',        icon: '🎓', members: 1230,  joined: false },
 ];
 
-const USERS: UserShape[] = [
-  { name: 'Priya Sharma', handle: 'priya_s', plan: 'Pro' },
-  { name: 'Arjun Mehta',  handle: 'arjunm',  plan: 'Free' },
-  { name: 'Dev Rathi',    handle: 'dev_r',   plan: 'Pro' },
-  { name: 'Kavya Iyer',   handle: 'kavyai',  plan: 'Elite' },
-  { name: 'Rohan Gupta',  handle: 'rohan_g', plan: 'Free' },
-  { name: 'Meera Nair',   handle: 'meera_n', plan: 'Pro' },
-];
-
-const INITIAL_POSTS: Post[] = [
-  { id: 1, user: USERS[0], community: 'jee',   communityLabel: 'JEE Mains',  time: '2m ago',  body: 'Just solved 40 problems in Calculus back-to-back 🔥 The trick with limits is to always check for indeterminate forms first.', tag: 'Study tip', likes: 142, replies: 23, reposts: 18, bookmarks: 47, liked: false, bookmarked: false, threadReplies: [{ user: USERS[1], body: 'This is exactly what I needed!', time: '1m ago', likes: 12 }] },
-  { id: 2, user: USERS[2], community: 'world', communityLabel: 'World Feed', time: '14m ago', body: "Hot take: Pomodoro is overrated for deep technical study. Here's what actually works for 4-6 hour sessions without burning out 🧵", tag: null, likes: 89,  replies: 31, reposts: 44, bookmarks: 112, liked: true,  bookmarked: false, threadReplies: [] },
-  { id: 3, user: USERS[3], community: 'neet',  communityLabel: 'NEET UG',    time: '1h ago',  body: 'Mock test score update: 680/720 in Biology 🎯 Dropped marks only in Plant Physiology.', tag: 'Progress', likes: 56, replies: 14, reposts: 7, bookmarks: 29, liked: false, bookmarked: true, threadReplies: [] },
-  { id: 4, user: USERS[5], community: 'cat',   communityLabel: 'CAT',        time: '2h ago',  body: 'Quant Tip: For Geometry questions, always draw the figure. Went from 68%ile to 89%ile in 6 weeks doing this.', tag: 'Strategy', likes: 203, replies: 41, reposts: 88, bookmarks: 167, liked: false, bookmarked: false, threadReplies: [] },
-  { id: 5, user: USERS[1], community: 'jee',   communityLabel: 'JEE Mains',  time: '3h ago',  body: 'Anyone else finding the new NTA paper pattern harder? The shift in Chemistry weightage is real.', tag: null, likes: 34, replies: 18, reposts: 3, bookmarks: 12, liked: false, bookmarked: false, threadReplies: [] },
-  { id: 6, user: USERS[4], community: 'world', communityLabel: 'World Feed', time: '4h ago',  body: 'Just had the most productive mentor session with Dr. Rao on Statistics. Cleared 3 weeks of confusion in 45 minutes.', tag: 'Testimonial', likes: 87, replies: 9, reposts: 24, bookmarks: 38, liked: true, bookmarked: true, threadReplies: [] },
-];
-
-const TRENDING = [
+const TRENDING_TAGS = [
   { tag: '#JEE2026',         posts: 2140, rise: '+18%', community: 'jee' },
   { tag: '#NEETUGPrep',      posts: 1830, rise: '+12%', community: 'neet' },
   { tag: '#StudyWithMe',     posts: 4210, rise: '+31%', community: 'world' },
@@ -67,15 +66,54 @@ const EVENTS = [
   { id: 'cat-quant-sprint-2026',  title: 'CAT Quant Sprint',  time: 'Sat, 10 AM',     participants: 94  },
 ];
 
+// Suggested mentors get a stable target_id so the toggleFollow row sticks.
 const SUGGESTED_MENTORS = [
-  { name: 'Dr. Priya Iyer',    sub: 'Data Science · IIT Bombay', rating: 4.9 },
-  { name: 'Rajesh Nair',       sub: 'Physics · JEE Expert',      rating: 4.8 },
-  { name: 'Meena Krishnan',    sub: 'Chemistry · NEET',          rating: 4.7 },
-  { name: 'Arjun Mehta',       sub: 'CS · Stripe',               rating: 4.9 },
+  { id: 'mentor-priya-iyer',     name: 'Dr. Priya Iyer', sub: 'Data Science · IIT Bombay', rating: 4.9 },
+  { id: 'mentor-rajesh-nair',    name: 'Rajesh Nair',    sub: 'Physics · JEE Expert',      rating: 4.8 },
+  { id: 'mentor-meena-krishnan', name: 'Meena Krishnan', sub: 'Chemistry · NEET',          rating: 4.7 },
+  { id: 'mentor-arjun-mehta',    name: 'Arjun Mehta',    sub: 'CS · Stripe',               rating: 4.9 },
 ];
+
+function relativeTime(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return 'now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day === 1) return 'yesterday';
+  if (day < 7) return `${day}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function feedPostToCard(p: FeedPost, communityLabelFor: (id: string) => string): Post {
+  const name = p.author?.full_name ?? p.author?.handle ?? 'Someone';
+  const handle = p.author?.handle ?? 'user';
+  const planRaw = p.author?.plan ?? 'Free';
+  const plan: UserShape['plan'] = planRaw === 'Pro' || planRaw === 'Elite' ? planRaw : 'Free';
+  return {
+    id: p.id,
+    user: { name, handle, plan },
+    community: p.community_id,
+    communityLabel: communityLabelFor(p.community_id),
+    time: relativeTime(p.created_at),
+    body: p.body,
+    tag: p.tag,
+    likes: p.like_count,
+    replies: p.comment_count,
+    reposts: 0,
+    bookmarks: 0,
+    liked: false,
+    bookmarked: false,
+    threadReplies: [],
+  };
+}
 
 function PostCard({ post, onClick }: { post: Post; onClick: () => void }) {
   const [p, setP] = useState(post);
+  // Keep local UI in sync if the parent passes a new post (e.g. after refetch).
+  useEffect(() => { setP(post); }, [post]);
   const toggle = (e: React.MouseEvent, field: 'liked' | 'bookmarked', countField: 'likes' | 'bookmarks') => {
     e.stopPropagation();
     setP(x => ({ ...x, [field]: !x[field], [countField]: x[countField] + (x[field] ? -1 : 1) } as Post));
@@ -133,7 +171,7 @@ function ThreadPanel({ post, onClose }: { post: Post; onClose: () => void }) {
 
   const send = () => {
     if (!reply.trim()) return;
-    setReplies(r => [...r, { user: { name: 'Arjun Patel', handle: 'arjunp', plan: 'Free' }, body: reply, time: 'now', likes: 0 }]);
+    setReplies(r => [...r, { user: { name: 'You', handle: 'you', plan: 'Free' }, body: reply, time: 'now', likes: 0 }]);
     setReply('');
   };
 
@@ -164,7 +202,7 @@ function ThreadPanel({ post, onClose }: { post: Post; onClose: () => void }) {
       </div>
       <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border-subtle)' }}>
         <div style={{ display: 'flex', gap: 10 }}>
-          <Avatar name="Arjun Patel" size={32} />
+          <Avatar name="You" size={32} />
           <div style={{ flex: 1, background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 14 }}>
             <textarea
               value={reply}
@@ -182,19 +220,51 @@ function ThreadPanel({ post, onClose }: { post: Post; onClose: () => void }) {
   );
 }
 
+function FeedSkeleton() {
+  return (
+    <div>
+      {[0, 1, 2].map(i => (
+        <div key={i} style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 999, background: 'var(--bg-hover)' }} />
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ width: 160, height: 12, borderRadius: 4, background: 'var(--bg-hover)' }} />
+              <div style={{ width: '90%', height: 12, borderRadius: 4, background: 'var(--bg-hover)' }} />
+              <div style={{ width: '70%', height: 12, borderRadius: 4, background: 'var(--bg-hover)' }} />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function CommunityPage() {
   const [active, setActive] = useState('world');
-  const [posts, setPosts] = useState(INITIAL_POSTS);
+  const [tab, setTab] = useState<Tab>('for-you');
+  const [feedPosts, setFeedPosts] = useState<Post[]>([]);
+  const [feedLoading, setFeedLoading] = useState(true);
   const [composer, setComposer] = useState('');
   const [composerOpen, setComposerOpen] = useState(false);
+  const [posting, setPosting] = useState(false);
   const [selectedCommunity, setSelectedCommunity] = useState('world');
   const [thread, setThread] = useState<Post | null>(null);
   const [newBanner, setNewBanner] = useState(0);
   const [joinedIds, setJoinedIds] = useState<string[]>([]);
   const [rsvpedIds, setRsvpedIds] = useState<string[]>([]);
+  const [followedMentors, setFollowedMentors] = useState<string[]>([]);
+  const [pendingFollowIds, setPendingFollowIds] = useState<string[]>([]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
-  // Live: bump the new-posts banner each time a new row lands in `posts`.
+  const allCommunities = COMMUNITIES.map(c => ({
+    ...c,
+    joined: c.joined || joinedIds.includes(c.id),
+  }));
+
+  const communityLabelFor = useCallback((id: string) => {
+    return COMMUNITIES.find(c => c.id === id)?.label ?? id;
+  }, []);
+
   useRealtimeTable({
     channelName: 'community-posts',
     table: 'posts',
@@ -202,15 +272,43 @@ export default function CommunityPage() {
     onChange: () => setNewBanner(c => c + 1),
   });
 
+  // Initial load: joined communities, RSVPs, followed mentors.
   useEffect(() => {
     listJoinedCommunityIds().then(setJoinedIds).catch(() => {});
     listRsvpedEventIds().then(setRsvpedIds).catch(() => {});
+    listFollowedIds().then(({ mentors }) => setFollowedMentors(mentors)).catch(() => {});
   }, []);
 
-  const allCommunities = COMMUNITIES.map(c => ({
-    ...c,
-    joined: c.joined || joinedIds.includes(c.id),
-  }));
+  // Load the feed whenever the tab or active community changes.
+  useEffect(() => {
+    let cancelled = false;
+    setFeedLoading(true);
+
+    const loader = (async (): Promise<FeedPost[]> => {
+      if (tab === 'following')  return listFollowingPosts({ limit: 50 });
+      if (tab === 'trending')   return listTrendingPosts({ limit: 50, days: 7 });
+      if (tab === 'latest')     return listLatestPosts({ limit: 50 });
+      // For you = latest, filtered to active community ('world' shows all)
+      const all = await listLatestPosts({ limit: 100 });
+      return active === 'world' ? all : all.filter(p => p.community_id === active);
+    })();
+
+    loader
+      .then(rows => {
+        if (cancelled) return;
+        setFeedPosts(rows.map(r => feedPostToCard(r, communityLabelFor)));
+      })
+      .catch(err => {
+        if (cancelled) return;
+        console.error('[feed]', err);
+        setFeedPosts([]);
+      })
+      .finally(() => {
+        if (!cancelled) setFeedLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [tab, active, communityLabelFor]);
 
   const handleJoin = async (communityId: string, label: string) => {
     setJoinedIds(prev => prev.includes(communityId) ? prev : [...prev, communityId]);
@@ -235,27 +333,55 @@ export default function CommunityPage() {
     }
   };
 
-  const submit = () => {
-    if (!composer.trim()) return;
-    const c = COMMUNITIES.find(x => x.id === selectedCommunity);
-    const newPost: Post = {
-      id: Date.now(),
-      user: { name: 'Arjun Patel', handle: 'arjunp', plan: 'Free' },
-      community: selectedCommunity,
-      communityLabel: c?.label || 'World Feed',
-      time: 'now',
-      body: composer,
-      tag: null,
-      likes: 0, replies: 0, reposts: 0, bookmarks: 0,
-      liked: false, bookmarked: false, threadReplies: [],
-    };
-    setPosts(p => [newPost, ...p]);
-    setComposer('');
-    setComposerOpen(false);
+  const handleFollowMentor = async (mentorId: string, name: string) => {
+    if (pendingFollowIds.includes(mentorId)) return;
+    const wasFollowing = followedMentors.includes(mentorId);
+    setPendingFollowIds(prev => [...prev, mentorId]);
+    setFollowedMentors(prev => wasFollowing ? prev.filter(id => id !== mentorId) : [...prev, mentorId]);
+    try {
+      const res = await toggleFollow({ target_type: 'mentor', target_id: mentorId });
+      // Reconcile with server result in case our optimistic guess was wrong.
+      setFollowedMentors(prev =>
+        res.following ? Array.from(new Set([...prev, mentorId])) : prev.filter(id => id !== mentorId)
+      );
+      if (res.following) toast(`Following ${name}`);
+    } catch (err) {
+      setFollowedMentors(prev => wasFollowing ? [...prev, mentorId] : prev.filter(id => id !== mentorId));
+      toast(err instanceof Error ? err.message : 'Could not update follow');
+    } finally {
+      setPendingFollowIds(prev => prev.filter(id => id !== mentorId));
+    }
   };
 
-  const filteredPosts = posts.filter(p => active === 'world' || p.community === active);
+  const submit = async () => {
+    const body = composer.trim();
+    if (!body || posting) return;
+    setPosting(true);
+    try {
+      const created = await createPost({ body, community_id: selectedCommunity });
+      const card = feedPostToCard(created, communityLabelFor);
+      setFeedPosts(prev => [card, ...prev]);
+      setComposer('');
+      setComposerOpen(false);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Could not post');
+    } finally {
+      setPosting(false);
+    }
+  };
+
   const activeCommunity = allCommunities.find(c => c.id === active) || allCommunities[0];
+
+  const tabIsCommunityFiltered = tab === 'for-you';
+  const visiblePosts = tabIsCommunityFiltered
+    ? feedPosts // already filtered in the loader
+    : feedPosts;
+
+  const emptyMessage =
+    tab === 'following' ? 'Follow some people or communities to see their posts here.'
+    : tab === 'trending'  ? 'Nothing trending yet — check back later.'
+    : tab === 'latest'    ? 'Nothing here yet — be the first to post!'
+    :                       'Nothing here yet — be the first to post!';
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '248px minmax(0, 1fr) 308px', height: 'calc(100vh - 68px)', overflow: 'hidden' }}>
@@ -312,20 +438,24 @@ export default function CommunityPage() {
               <span style={{ marginLeft: 4, padding: '2px 8px', borderRadius: 999, background: 'var(--bg-hover)', fontSize: 11, color: 'var(--text-secondary)' }}>{activeCommunity.members.toLocaleString()} members</span>
             </div>
             <div style={{ display: 'flex', gap: 0, marginTop: 14, borderBottom: '1px solid var(--border-subtle)', marginBottom: -1 }}>
-              {['For you', 'Following', 'Trending', 'Latest'].map((label, i) => (
-                <button
-                  key={label}
-                  onClick={() => { if (i !== 0) toast('Coming soon'); }}
-                  style={{
-                    padding: '10px 18px', fontSize: 14, fontWeight: i === 0 ? 600 : 400,
-                    color: i === 0 ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                    borderBottom: i === 0 ? '2px solid var(--text-primary)' : '2px solid transparent',
-                    cursor: 'pointer', transition: 'color 160ms',
-                  }}
-                  onMouseEnter={e => { if (i !== 0) e.currentTarget.style.color = 'var(--text-secondary)'; }}
-                  onMouseLeave={e => { if (i !== 0) e.currentTarget.style.color = 'var(--text-tertiary)'; }}
-                >{label}</button>
-              ))}
+              {TABS.map(t => {
+                const isActive = tab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    style={{
+                      padding: '10px 18px', fontSize: 14, fontWeight: isActive ? 600 : 400,
+                      color: isActive ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                      borderBottom: isActive ? '2px solid var(--text-primary)' : '2px solid transparent',
+                      cursor: 'pointer', transition: 'color 160ms',
+                      background: 'transparent',
+                    }}
+                    onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                    onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+                  >{t.label}</button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -344,7 +474,7 @@ export default function CommunityPage() {
         {/* Composer */}
         <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', gap: 12 }}>
-            <Avatar name="Arjun Patel" size={40} />
+            <Avatar name="You" size={40} />
             <div style={{ flex: 1, background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: composerOpen ? 16 : 999, overflow: 'hidden', transition: 'border-radius 220ms' }}>
               <textarea
                 ref={composerRef}
@@ -374,9 +504,9 @@ export default function CommunityPage() {
                   <button onClick={() => { setComposerOpen(false); setComposer(''); }} style={{ padding: '6px 12px', borderRadius: 999, background: 'transparent', fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}>Cancel</button>
                   <button
                     onClick={submit}
-                    disabled={!composer.trim()}
-                    style={{ padding: '6px 14px', borderRadius: 999, background: composer.trim() ? 'var(--gradient-brand)' : 'var(--bg-hover)', color: composer.trim() ? '#fff' : 'var(--text-tertiary)', fontSize: 12, fontWeight: 600 }}
-                  >Post</button>
+                    disabled={!composer.trim() || posting}
+                    style={{ padding: '6px 14px', borderRadius: 999, background: composer.trim() && !posting ? 'var(--gradient-brand)' : 'var(--bg-hover)', color: composer.trim() && !posting ? '#fff' : 'var(--text-tertiary)', fontSize: 12, fontWeight: 600, cursor: composer.trim() && !posting ? 'pointer' : 'not-allowed' }}
+                  >{posting ? 'Posting…' : 'Post'}</button>
                 </div>
               )}
             </div>
@@ -385,11 +515,14 @@ export default function CommunityPage() {
 
         {/* Posts */}
         <div>
-          {filteredPosts.map(p => <PostCard key={p.id} post={p} onClick={() => setThread(p)} />)}
-          {filteredPosts.length === 0 && (
+          {feedLoading ? (
+            <FeedSkeleton />
+          ) : visiblePosts.length === 0 ? (
             <div style={{ padding: '60px 24px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
-              <p style={{ fontFamily: 'Fraunces, serif', fontStyle: 'italic', fontSize: 18 }}>Nothing here yet — be first to post!</p>
+              <p style={{ fontFamily: 'Fraunces, serif', fontStyle: 'italic', fontSize: 18 }}>{emptyMessage}</p>
             </div>
+          ) : (
+            visiblePosts.map(p => <PostCard key={p.id} post={p} onClick={() => setThread(p)} />)
           )}
         </div>
       </div>
@@ -401,7 +534,7 @@ export default function CommunityPage() {
         <aside style={{ overflowY: 'auto', padding: '20px 20px', display: 'flex', flexDirection: 'column', gap: 20, borderLeft: '1px solid var(--border-subtle)' }}>
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 20 }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Trending in your communities</div>
-            {TRENDING.map((t, i) => (
+            {TRENDING_TAGS.map((t, i) => (
               <button
                 key={i}
                 onClick={() => setActive(t.community)}
@@ -409,7 +542,7 @@ export default function CommunityPage() {
                   display: 'block', width: '100%', textAlign: 'left',
                   padding: '10px 8px', margin: '0 -8px',
                   borderRadius: 10, background: 'transparent',
-                  borderBottom: i < TRENDING.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                  borderBottom: i < TRENDING_TAGS.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                   cursor: 'pointer', transition: 'background 160ms',
                 }}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
@@ -455,25 +588,41 @@ export default function CommunityPage() {
           </div>
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 20 }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Mentors to follow</div>
-            {SUGGESTED_MENTORS.map((m, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < SUGGESTED_MENTORS.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                <Avatar name={m.name} size={36} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{m.sub}</div>
+            {SUGGESTED_MENTORS.map((m, i) => {
+              const isFollowing = followedMentors.includes(m.id);
+              const isPending = pendingFollowIds.includes(m.id);
+              return (
+                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < SUGGESTED_MENTORS.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                  <Avatar name={m.name} size={36} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{m.sub}</div>
+                  </div>
+                  <button
+                    onClick={() => handleFollowMentor(m.id, m.name)}
+                    disabled={isPending}
+                    style={{
+                      fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 999,
+                      border: `1px solid ${isFollowing ? 'var(--brand-500)' : 'var(--border-default)'}`,
+                      background: isFollowing ? 'var(--brand-500)' : 'transparent',
+                      color: isFollowing ? '#fff' : 'var(--brand-500)',
+                      cursor: isPending ? 'wait' : 'pointer', transition: 'all 160ms',
+                      opacity: isPending ? 0.7 : 1,
+                    }}
+                    onMouseEnter={e => {
+                      if (isPending || isFollowing) return;
+                      e.currentTarget.style.background = 'var(--bg-hover)';
+                      e.currentTarget.style.borderColor = 'var(--border-strong)';
+                    }}
+                    onMouseLeave={e => {
+                      if (isPending || isFollowing) return;
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = 'var(--border-default)';
+                    }}
+                  >{isFollowing ? 'Following' : 'Follow'}</button>
                 </div>
-                <button
-                  onClick={() => toast('Coming soon')}
-                  style={{
-                    fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 999,
-                    border: '1px solid var(--border-default)', color: 'var(--brand-500)',
-                    background: 'transparent', cursor: 'pointer', transition: 'all 160ms',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-strong)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
-                >Follow</button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </aside>
       )}

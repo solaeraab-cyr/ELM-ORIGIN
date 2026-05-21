@@ -25,6 +25,16 @@ export async function joinCommunity(communityId: string) {
 
   // Treat the unique-violation as a no-op so re-clicks don't blow up.
   if (error && error.code !== '23505') throw new Error(error.message);
+
+  // Also record a follow so the Following feed surfaces posts from this
+  // community. Same idempotent treatment — unique violations are fine.
+  const { error: followErr } = await supabase
+    .from('follows')
+    .insert({ follower_id: user.id, target_type: 'community', target_id: communityId });
+  if (followErr && followErr.code !== '23505') {
+    console.error('[joinCommunity] follow insert failed', followErr.message);
+  }
+
   revalidatePath('/community');
 }
 
