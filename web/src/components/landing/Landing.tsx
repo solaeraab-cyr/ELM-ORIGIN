@@ -42,7 +42,7 @@ function LandingNav() {
         transition: 'all 250ms var(--ease-smooth)',
       }}>
         <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Image src="/elm-origin-logo.png" alt="Elm Origin" height={30} width={110} style={{ height: 30, width: 'auto' }} />
+          <Image src="/logo.png" alt="Elm Origin" height={38} width={140} style={{ height: 38, width: 'auto' }} priority />
         </Link>
 
         {/* Desktop center links */}
@@ -102,7 +102,7 @@ function LandingNav() {
           padding: '20px 24px',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 44 }}>
-            <Image src="/elm-origin-logo.png" alt="Elm Origin" height={28} width={104} style={{ height: 28, width: 'auto' }} />
+            <Image src="/logo.png" alt="Elm Origin" height={32} width={120} style={{ height: 32, width: 'auto' }} />
             <button onClick={() => setMobileMenu(false)} style={{ width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)' }}>
               <Icon name="x" size={20} />
             </button>
@@ -514,7 +514,7 @@ function Footer() {
     <footer style={{ padding: '64px 24px 36px', background: 'var(--bg-surface)', borderTop: '1px solid var(--border-subtle)' }}>
       <div style={{ maxWidth: 1180, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 40 }}>
         <div style={{ maxWidth: 280 }}>
-          <Image src="/elm-origin-logo.png" alt="Elm Origin" height={28} width={104} style={{ height: 28, width: 'auto', marginBottom: 14, display: 'block' }} />
+          <Image src="/logo.png" alt="Elm Origin" height={32} width={120} style={{ height: 32, width: 'auto', marginBottom: 14, display: 'block' }} />
           <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-tertiary)', marginBottom: 18 }}>The study environment you were always missing.</p>
           <div style={{ display: 'flex', gap: 8 }}>
             {['T', 'I', 'L'].map((s) => (

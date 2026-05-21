@@ -47,7 +47,7 @@ export const metadata: Metadata = {
     description: 'AI-powered study environment with live rooms, mentors, and interview prep.',
     images: [
       {
-        url: '/elm-origin-logo.png',
+        url: '/opengraph-image.png',
         width: 1200,
         height: 630,
         alt: 'ELM Origin',
@@ -58,7 +58,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'ELM Origin — Learn. Connect. Grow.',
     description: 'AI-powered study environment with live rooms, mentors, and interview prep.',
-    images: ['/elm-origin-logo.png'],
+    images: ['/opengraph-image.png'],
   },
   robots: {
     index: true,

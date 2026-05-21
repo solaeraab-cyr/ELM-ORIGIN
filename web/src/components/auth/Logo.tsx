@@ -7,10 +7,10 @@ interface LogoProps {
 export default function Logo({ size = 32 }: LogoProps) {
   return (
     <Image
-      src="/elm-origin-logo.png"
+      src="/logo.png"
       alt="Elm Origin"
       height={size}
-      width={size * 3.75}
+      width={Math.round(size * 3.73)}
       style={{ height: size, width: 'auto', display: 'block' }}
       priority
     />
