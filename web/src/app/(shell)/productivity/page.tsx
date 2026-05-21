@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Icon from '@/components/primitives/Icon';
+import { addTask, deleteTask, listTasksForDate, toggleTaskComplete, type PlannerTask } from '@/app/actions/planner';
+import { toast } from '@/lib/toast';
 
 // ── Focus Timer ──────────────────────────────────────────────────
 const PHASES = [
@@ -175,51 +177,196 @@ function NotesTab() {
 }
 
 // ── Planner Tab ──────────────────────────────────────────────────
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const HOURS = Array.from({ length: 8 }, (_, i) => `${9 + i}:00`);
-const EVENTS: Record<string, { label: string; color: string; row: number; span: number }[]> = {
-  Mon: [{ label: 'Linear Algebra', color: 'var(--brand-500)', row: 0, span: 2 }],
-  Tue: [{ label: 'React Patterns', color: 'var(--mint-500)', row: 2, span: 1 }, { label: 'Physics Sprint', color: 'var(--amber-500)', row: 5, span: 2 }],
-  Wed: [{ label: 'Mentor Session', color: '#e879f9', row: 1, span: 1 }],
-  Thu: [{ label: 'Deep Work Block', color: 'var(--brand-400)', row: 0, span: 3 }],
-  Fri: [{ label: 'Organic Chem', color: '#f43f5e', row: 3, span: 2 }],
-  Sat: [{ label: 'Mock Test', color: 'var(--amber-600)', row: 0, span: 4 }],
-  Sun: [],
-};
+function todayISO() {
+  const d = new Date();
+  const tz = d.getTimezoneOffset();
+  return new Date(d.getTime() - tz * 60_000).toISOString().slice(0, 10);
+}
 
 function PlannerTab() {
+  const today = todayISO();
+  const [tasks, setTasks] = useState<PlannerTask[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState('');
+  const [dueDate, setDueDate] = useState(today);
+  const [dueTime, setDueTime] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    listTasksForDate(today)
+      .then(setTasks)
+      .catch(() => toast('Could not load tasks'))
+      .finally(() => setLoading(false));
+  }, [today]);
+
+  const onAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      const created = await addTask({
+        title: title.trim(),
+        due_date: dueDate,
+        due_time: dueTime || null,
+      });
+      if (created.due_date === today) {
+        setTasks(prev => [...prev, created].sort((a, b) => {
+          if (a.due_time === b.due_time) return 0;
+          if (!a.due_time) return 1;
+          if (!b.due_time) return -1;
+          return a.due_time < b.due_time ? -1 : 1;
+        }));
+      }
+      setTitle('');
+      setDueTime('');
+      setDueDate(today);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Could not add task');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onToggle = async (task: PlannerTask) => {
+    const next = !task.is_complete;
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, is_complete: next } : t));
+    try {
+      await toggleTaskComplete(task.id, next);
+    } catch (err) {
+      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, is_complete: !next } : t));
+      toast(err instanceof Error ? err.message : 'Could not update task');
+    }
+  };
+
+  const onDelete = async (task: PlannerTask) => {
+    const prev = tasks;
+    setTasks(p => p.filter(t => t.id !== task.id));
+    try {
+      await deleteTask(task.id);
+    } catch (err) {
+      setTasks(prev);
+      toast(err instanceof Error ? err.message : 'Could not delete task');
+    }
+  };
+
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '60px repeat(7, 1fr)', minWidth: 700 }}>
-        {/* Header */}
-        <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }} />
-        {DAYS.map(d => (
-          <div key={d} style={{ padding: '12px 8px', textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)', borderBottom: '1px solid var(--border-subtle)' }}>{d}</div>
-        ))}
-        {/* Rows */}
-        {HOURS.map((h, rowIdx) => (
-          <>
-            <div key={`h-${h}`} style={{ padding: '0 8px', height: 60, display: 'flex', alignItems: 'flex-start', paddingTop: 8, fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', borderBottom: '1px solid var(--border-subtle)' }}>{h}</div>
-            {DAYS.map(d => {
-              const event = EVENTS[d]?.find(e => e.row === rowIdx);
-              return (
-                <div key={`${d}-${h}`} style={{ height: 60, borderBottom: '1px solid var(--border-subtle)', borderLeft: '1px solid var(--border-subtle)', padding: 4, position: 'relative' }}>
-                  {event && (
-                    <div style={{
-                      position: 'absolute', left: 4, right: 4, top: 4,
-                      height: event.span * 60 - 8,
-                      background: `${event.color}22`,
-                      border: `1px solid ${event.color}66`,
-                      borderRadius: 8, padding: '4px 8px',
-                      fontSize: 11, fontWeight: 600, color: event.color,
-                      overflow: 'hidden', zIndex: 1,
-                    }}>{event.label}</div>
+    <div style={{ maxWidth: 640, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {/* Add task */}
+      <form
+        onSubmit={onAdd}
+        style={{
+          background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)',
+          borderRadius: 16, padding: 18, display: 'flex', flexDirection: 'column', gap: 12,
+        }}
+      >
+        <input
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="What needs doing?"
+          style={{
+            background: 'transparent', border: 'none', outline: 'none',
+            fontSize: 15, fontWeight: 500, color: 'var(--text-primary)',
+            padding: '4px 2px',
+          }}
+        />
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-tertiary)' }}>
+            <Icon name="calendar" size={13} />
+            <input
+              type="date"
+              value={dueDate}
+              onChange={e => setDueDate(e.target.value)}
+              style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: '4px 8px', fontSize: 12, background: 'var(--bg-base)', color: 'var(--text-primary)', fontFamily: 'inherit' }}
+            />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-tertiary)' }}>
+            <Icon name="focus" size={13} />
+            <input
+              type="time"
+              value={dueTime}
+              onChange={e => setDueTime(e.target.value)}
+              style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: '4px 8px', fontSize: 12, background: 'var(--bg-base)', color: 'var(--text-primary)', fontFamily: 'inherit' }}
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={!title.trim() || submitting}
+            style={{
+              marginLeft: 'auto', padding: '7px 18px', borderRadius: 999,
+              background: title.trim() && !submitting ? 'var(--gradient-brand)' : 'var(--bg-hover)',
+              color: title.trim() && !submitting ? '#fff' : 'var(--text-tertiary)',
+              fontSize: 13, fontWeight: 600,
+              cursor: title.trim() && !submitting ? 'pointer' : 'not-allowed',
+              transition: 'opacity 160ms',
+            }}
+          >{submitting ? 'Adding…' : 'Add task'}</button>
+        </div>
+      </form>
+
+      {/* Today's tasks */}
+      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 18 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Today</div>
+        {loading ? (
+          <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Loading…</div>
+        ) : tasks.length === 0 ? (
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>No tasks yet — add one above</div>
+        ) : (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column' }}>
+            {tasks.map((t, i) => (
+              <li
+                key={t.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '12px 4px',
+                  borderTop: i === 0 ? 'none' : '1px solid var(--border-subtle)',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => onToggle(t)}
+                  aria-label={t.is_complete ? 'Mark incomplete' : 'Mark complete'}
+                  style={{
+                    width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                    border: `2px solid ${t.is_complete ? 'var(--mint-500)' : 'var(--border-default)'}`,
+                    background: t.is_complete ? 'var(--mint-500)' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', transition: 'all 160ms',
+                  }}
+                >{t.is_complete && <Icon name="check" size={11} color="#fff" />}</button>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 14, fontWeight: 500,
+                    color: t.is_complete ? 'var(--text-tertiary)' : 'var(--text-primary)',
+                    textDecoration: t.is_complete ? 'line-through' : 'none',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{t.title}</div>
+                  {t.due_time && (
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'JetBrains Mono, monospace', marginTop: 2 }}>
+                      {t.due_time.slice(0, 5)}
+                    </div>
                   )}
                 </div>
-              );
-            })}
-          </>
-        ))}
+
+                <button
+                  type="button"
+                  onClick={() => onDelete(t)}
+                  aria-label="Delete task"
+                  style={{
+                    width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                    color: 'var(--text-tertiary)', background: 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', transition: 'all 160ms',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--danger-500)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+                >
+                  <Icon name="x" size={14} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

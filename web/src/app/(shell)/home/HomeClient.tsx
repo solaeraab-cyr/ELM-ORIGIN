@@ -97,7 +97,7 @@ export default function HomeClient({ rooms, greetingName, streak }: HomeClientPr
       <div style={{ marginBottom: 32 }}>
         <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 4, fontFamily: 'Instrument Sans, system-ui' }}>{dayName}, {dateStr}</p>
         <h1 style={{ fontFamily: 'Fraunces, serif', fontSize: 38, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 4 }}>
-          Good afternoon, {greetingName} 👋
+          Good afternoon, {greetingName}
         </h1>
         <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
           You&apos;re on a <strong style={{ color: 'var(--amber-500)' }}>{streak}-day streak</strong> — keep it going!
