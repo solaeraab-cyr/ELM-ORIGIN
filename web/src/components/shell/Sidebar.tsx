@@ -43,7 +43,7 @@ export default function Sidebar({ isMentor, user, pendingFriendRequests = 0 }: S
     >
       {/* Logo */}
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10, padding: '4px 6px 32px' }}>
-        <Image src="/elm-origin-logo.png" alt="Elm Origin" height={32} width={120} style={{ height: 32, width: 'auto' }} priority />
+        <Image src="/logo.png" alt="Elm Origin" height={40} width={150} style={{ height: 40, width: 'auto' }} priority />
       </div>
 
       {/* Nav */}
