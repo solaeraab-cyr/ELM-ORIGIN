@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Icon from '@/components/primitives/Icon';
 import { addTask, deleteTask, listTasksForDate, toggleTaskComplete, type PlannerTask } from '@/app/actions/planner';
+import { createNote, deleteNote, listNotes, updateNote, type Note } from '@/app/actions/notes';
 import { toast } from '@/lib/toast';
 
 // ── Focus Timer ──────────────────────────────────────────────────
@@ -123,18 +124,107 @@ function FocusTab() {
 }
 
 // ── Notes Tab ────────────────────────────────────────────────────
-const NOTES_SEED = [
-  { id: 1, title: 'Linear Algebra Notes', body: 'Eigenvectors are vectors that only scale under a linear transformation. λv = Av...', updated: '2h ago' },
-  { id: 2, title: 'JEE Physics — Rotational', body: 'Angular momentum L = Iω. Torque = dL/dt. For conservation: no net external torque.', updated: 'yesterday' },
-  { id: 3, title: 'React Performance', body: 'useMemo for expensive calculations, useCallback for stable function refs, React.memo for component memoization.', updated: '3d ago' },
-];
+function relativeTime(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day === 1) return 'yesterday';
+  if (day < 7) return `${day}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 function NotesTab() {
-  const [notes, setNotes] = useState(NOTES_SEED);
-  const [activeId, setActiveId] = useState(1);
-  const active = notes.find(n => n.id === activeId) || notes[0];
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
 
-  const updateBody = (body: string) => setNotes(ns => ns.map(n => n.id === activeId ? { ...n, body, updated: 'now' } : n));
+  // Track the values last persisted so blur handlers can skip no-op writes.
+  const savedRef = useRef<{ title: string; body: string } | null>(null);
+
+  useEffect(() => {
+    listNotes()
+      .then(rows => {
+        setNotes(rows);
+        if (rows.length > 0) {
+          setActiveId(rows[0].id);
+          setTitle(rows[0].title ?? '');
+          setBody(rows[0].body);
+          savedRef.current = { title: rows[0].title ?? '', body: rows[0].body };
+        }
+      })
+      .catch(() => toast('Could not load notes'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const active = notes.find(n => n.id === activeId) ?? null;
+
+  const selectNote = (id: string) => {
+    if (id === activeId) return;
+    const n = notes.find(x => x.id === id);
+    if (!n) return;
+    setActiveId(id);
+    setTitle(n.title ?? '');
+    setBody(n.body);
+    savedRef.current = { title: n.title ?? '', body: n.body };
+  };
+
+  const onNew = async () => {
+    try {
+      const created = await createNote();
+      setNotes(prev => [created, ...prev]);
+      setActiveId(created.id);
+      setTitle('');
+      setBody('');
+      savedRef.current = { title: '', body: '' };
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Could not create note');
+    }
+  };
+
+  const saveIfChanged = async (field: 'title' | 'body') => {
+    if (!activeId || !savedRef.current) return;
+    const next = field === 'title' ? title : body;
+    if (next === savedRef.current[field]) return;
+    const patch = field === 'title' ? { title: next.trim() === '' ? null : next } : { body: next };
+    const now = new Date().toISOString();
+    setNotes(prev =>
+      prev
+        .map(n => n.id === activeId ? { ...n, ...patch, updated_at: now } : n)
+        .sort((a, b) => a.updated_at < b.updated_at ? 1 : -1)
+    );
+    savedRef.current = { ...savedRef.current, [field]: next };
+    try {
+      await updateNote(activeId, patch);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Could not save note');
+    }
+  };
+
+  const onDelete = async (id: string) => {
+    const prev = notes;
+    const wasActive = id === activeId;
+    const remaining = notes.filter(n => n.id !== id);
+    setNotes(remaining);
+    if (wasActive) {
+      const fallback = remaining[0] ?? null;
+      setActiveId(fallback?.id ?? null);
+      setTitle(fallback?.title ?? '');
+      setBody(fallback?.body ?? '');
+      savedRef.current = fallback ? { title: fallback.title ?? '', body: fallback.body } : null;
+    }
+    try {
+      await deleteNote(id);
+    } catch (err) {
+      setNotes(prev);
+      toast(err instanceof Error ? err.message : 'Could not delete note');
+    }
+  };
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 0, height: 560, border: '1px solid var(--border-subtle)', borderRadius: 18, overflow: 'hidden' }}>
@@ -142,35 +232,102 @@ function NotesTab() {
       <div style={{ borderRight: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>Notes</span>
-          <button onClick={() => {
-            const id = Date.now();
-            setNotes(ns => [{ id, title: 'New Note', body: '', updated: 'now' }, ...ns]);
-            setActiveId(id);
-          }} style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--brand-500)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, lineHeight: 1 }}>+</button>
+          <button
+            onClick={onNew}
+            title="New note"
+            style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--brand-500)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          >
+            <Icon name="plus" size={14} />
+          </button>
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {notes.map(n => (
-            <button key={n.id} onClick={() => setActiveId(n.id)} style={{
-              width: '100%', padding: '14px 16px', textAlign: 'left',
-              background: activeId === n.id ? 'var(--bg-hover)' : 'transparent',
-              borderBottom: '1px solid var(--border-subtle)',
-              borderLeft: activeId === n.id ? '3px solid var(--brand-500)' : '3px solid transparent',
-            }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{n.title}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{n.updated}</div>
-            </button>
-          ))}
+          {loading ? (
+            <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Loading…</div>
+          ) : notes.length === 0 ? (
+            <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+              No notes yet — click <strong style={{ color: 'var(--text-secondary)' }}>+</strong> to add one
+            </div>
+          ) : (
+            notes.map(n => {
+              const isActive = activeId === n.id;
+              const displayTitle = (isActive ? title : n.title)?.trim() || 'Untitled';
+              const preview = (isActive ? body : n.body).split('\n')[0].slice(0, 60);
+              return (
+                <div
+                  key={n.id}
+                  onClick={() => selectNote(n.id)}
+                  style={{
+                    position: 'relative',
+                    padding: '14px 40px 14px 16px', cursor: 'pointer',
+                    background: isActive ? 'var(--bg-hover)' : 'transparent',
+                    borderBottom: '1px solid var(--border-subtle)',
+                    borderLeft: isActive ? '3px solid var(--brand-500)' : '3px solid transparent',
+                    transition: 'background 160ms',
+                  }}
+                  onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                  onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {displayTitle}
+                  </div>
+                  {preview && (
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {preview}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{relativeTime(n.updated_at)}</div>
+                  <button
+                    onClick={e => { e.stopPropagation(); onDelete(n.id); }}
+                    aria-label="Delete note"
+                    style={{
+                      position: 'absolute', top: 10, right: 10,
+                      width: 24, height: 24, borderRadius: 6,
+                      background: 'transparent', color: 'var(--text-tertiary)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      cursor: 'pointer', transition: 'all 160ms',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-surface)'; e.currentTarget.style.color = 'var(--danger-500)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
       {/* Editor */}
       <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg-surface)' }}>
-        <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
-          <input value={active?.title || ''} onChange={e => setNotes(ns => ns.map(n => n.id === activeId ? { ...n, title: e.target.value } : n))}
-            style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', background: 'transparent', border: 'none', outline: 'none', width: '100%' }} />
-        </div>
-        <textarea value={active?.body || ''} onChange={e => updateBody(e.target.value)}
-          placeholder="Start writing…"
-          style={{ flex: 1, padding: '16px 20px', fontSize: 14, lineHeight: 1.7, color: 'var(--text-primary)', background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontFamily: 'Inter, system-ui' }} />
+        {active ? (
+          <>
+            <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
+              <input
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                onBlur={() => saveIfChanged('title')}
+                placeholder="Untitled"
+                style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', background: 'transparent', border: 'none', outline: 'none', width: '100%' }}
+              />
+            </div>
+            <textarea
+              value={body}
+              onChange={e => setBody(e.target.value)}
+              onBlur={() => saveIfChanged('body')}
+              placeholder="Start writing…"
+              style={{ flex: 1, padding: '16px 20px', fontSize: 14, lineHeight: 1.7, color: 'var(--text-primary)', background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontFamily: 'Inter, system-ui' }}
+            />
+          </>
+        ) : (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: 'var(--text-tertiary)' }}>
+            <Icon name="attach" size={24} />
+            <div style={{ fontSize: 14 }}>Select a note or create a new one</div>
+            <button
+              onClick={onNew}
+              style={{ padding: '8px 16px', borderRadius: 999, background: 'var(--brand-500)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >+ New note</button>
+          </div>
+        )}
       </div>
     </div>
   );
