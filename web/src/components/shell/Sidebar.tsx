@@ -38,7 +38,7 @@ export default function Sidebar({ isMentor, user, pendingFriendRequests = 0 }: S
         borderRight: '1px solid var(--border-subtle)',
         flexDirection: 'column',
         padding: '28px 18px',
-        zIndex: 10,
+        zIndex: 30,
       }}
     >
       {/* Logo */}
