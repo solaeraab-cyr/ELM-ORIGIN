@@ -65,7 +65,7 @@ export default function MentorDashboardPage() {
         borderRadius: 20, padding: 28, marginBottom: 24,
       }}>
         <div style={{ flex: 1, minWidth: 240 }}>
-          <div style={{ fontFamily: 'Fraunces, serif', fontWeight: 600, fontStyle: 'italic', fontSize: 30, letterSpacing: '-0.01em' }}>Good morning, Priya ☀️</div>
+          <div style={{ fontFamily: 'Fraunces, serif', fontWeight: 600, fontStyle: 'italic', fontSize: 30, letterSpacing: '-0.01em' }}>Good morning, Priya</div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 6 }}>You have 2 sessions today. Next in 18 min.</div>
         </div>
         <button

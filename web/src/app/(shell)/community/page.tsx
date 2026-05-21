@@ -3,6 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Avatar, Icon } from '@/components/primitives';
 import { useRealtimeTable } from '@/hooks/useRealtimeSubscription';
+import {
+  joinCommunity,
+  listJoinedCommunityIds,
+  listRsvpedEventIds,
+  toggleEventRsvp,
+} from '@/app/actions/community';
+import { toast } from '@/lib/toast';
 
 type UserShape = { name: string; handle: string; plan: 'Free' | 'Pro' | 'Elite' };
 
@@ -47,17 +54,17 @@ const INITIAL_POSTS: Post[] = [
 ];
 
 const TRENDING = [
-  { tag: '#JEE2026',       posts: 2140, rise: '+18%' },
-  { tag: '#NEETUGPrep',    posts: 1830, rise: '+12%' },
-  { tag: '#StudyWithMe',   posts: 4210, rise: '+31%' },
-  { tag: '#CATQuant',      posts: 980,  rise: '+9%' },
-  { tag: '#InterviewSeason', posts: 1560, rise: '+44%' },
+  { tag: '#JEE2026',         posts: 2140, rise: '+18%', community: 'jee' },
+  { tag: '#NEETUGPrep',      posts: 1830, rise: '+12%', community: 'neet' },
+  { tag: '#StudyWithMe',     posts: 4210, rise: '+31%', community: 'world' },
+  { tag: '#CATQuant',        posts: 980,  rise: '+9%',  community: 'cat' },
+  { tag: '#InterviewSeason', posts: 1560, rise: '+44%', community: 'world' },
 ];
 
 const EVENTS = [
-  { title: 'JEE Mock Marathon',  time: 'Today, 8 PM',     participants: 312 },
-  { title: 'NEET Biology AMA',   time: 'Tomorrow, 6 PM',  participants: 180 },
-  { title: 'CAT Quant Sprint',   time: 'Sat, 10 AM',      participants: 94 },
+  { id: 'jee-mock-marathon-2026', title: 'JEE Mock Marathon', time: 'Today, 8 PM',    participants: 312 },
+  { id: 'neet-bio-ama-2026',      title: 'NEET Biology AMA',  time: 'Tomorrow, 6 PM', participants: 180 },
+  { id: 'cat-quant-sprint-2026',  title: 'CAT Quant Sprint',  time: 'Sat, 10 AM',     participants: 94  },
 ];
 
 const SUGGESTED_MENTORS = [
@@ -183,6 +190,8 @@ export default function CommunityPage() {
   const [selectedCommunity, setSelectedCommunity] = useState('world');
   const [thread, setThread] = useState<Post | null>(null);
   const [newBanner, setNewBanner] = useState(0);
+  const [joinedIds, setJoinedIds] = useState<string[]>([]);
+  const [rsvpedIds, setRsvpedIds] = useState<string[]>([]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
   // Live: bump the new-posts banner each time a new row lands in `posts`.
@@ -192,6 +201,39 @@ export default function CommunityPage() {
     event: 'INSERT',
     onChange: () => setNewBanner(c => c + 1),
   });
+
+  useEffect(() => {
+    listJoinedCommunityIds().then(setJoinedIds).catch(() => {});
+    listRsvpedEventIds().then(setRsvpedIds).catch(() => {});
+  }, []);
+
+  const allCommunities = COMMUNITIES.map(c => ({
+    ...c,
+    joined: c.joined || joinedIds.includes(c.id),
+  }));
+
+  const handleJoin = async (communityId: string, label: string) => {
+    setJoinedIds(prev => prev.includes(communityId) ? prev : [...prev, communityId]);
+    setActive(communityId);
+    toast(`Joined ${label}`);
+    try {
+      await joinCommunity(communityId);
+    } catch (err) {
+      setJoinedIds(prev => prev.filter(id => id !== communityId));
+      toast(err instanceof Error ? err.message : 'Could not join community');
+    }
+  };
+
+  const handleRsvp = async (eventId: string) => {
+    const wasRsvped = rsvpedIds.includes(eventId);
+    setRsvpedIds(prev => wasRsvped ? prev.filter(id => id !== eventId) : [...prev, eventId]);
+    try {
+      await toggleEventRsvp(eventId, !wasRsvped);
+    } catch (err) {
+      setRsvpedIds(prev => wasRsvped ? [...prev, eventId] : prev.filter(id => id !== eventId));
+      toast(err instanceof Error ? err.message : 'Could not update RSVP');
+    }
+  };
 
   const submit = () => {
     if (!composer.trim()) return;
@@ -213,14 +255,14 @@ export default function CommunityPage() {
   };
 
   const filteredPosts = posts.filter(p => active === 'world' || p.community === active);
-  const activeCommunity = COMMUNITIES.find(c => c.id === active) || COMMUNITIES[0];
+  const activeCommunity = allCommunities.find(c => c.id === active) || allCommunities[0];
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '248px minmax(0, 1fr) 308px', height: 'calc(100vh - 68px)', overflow: 'hidden' }}>
       {/* Left */}
       <aside style={{ borderRight: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', overflowY: 'auto', padding: '20px 12px' }}>
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-tertiary)', textTransform: 'uppercase', padding: '0 8px 10px' }}>Your communities</div>
-        {COMMUNITIES.filter(c => c.joined).map(c => (
+        {allCommunities.filter(c => c.joined).map(c => (
           <button
             key={c.id}
             onClick={() => setActive(c.id)}
@@ -229,7 +271,10 @@ export default function CommunityPage() {
               background: active === c.id ? 'var(--bg-hover)' : 'transparent',
               color: active === c.id ? 'var(--text-primary)' : 'var(--text-secondary)',
               fontWeight: active === c.id ? 600 : 500, fontSize: 14,
+              cursor: 'pointer', transition: 'background 160ms, color 160ms',
             }}
+            onMouseEnter={e => { if (active !== c.id) { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; } }}
+            onMouseLeave={e => { if (active !== c.id) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; } }}
           >
             <span style={{ fontSize: 18, width: 24, textAlign: 'center' }}>{c.icon}</span>
             <span style={{ flex: 1 }}>{c.label}</span>
@@ -238,8 +283,18 @@ export default function CommunityPage() {
         ))}
         <div style={{ height: 1, background: 'var(--border-subtle)', margin: '12px 8px' }} />
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-tertiary)', textTransform: 'uppercase', padding: '0 8px 10px' }}>Discover</div>
-        {COMMUNITIES.filter(c => !c.joined).map(c => (
-          <button key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, width: '100%', textAlign: 'left', background: 'transparent', color: 'var(--text-tertiary)', fontWeight: 500, fontSize: 14 }}>
+        {allCommunities.filter(c => !c.joined).map(c => (
+          <button
+            key={c.id}
+            onClick={() => handleJoin(c.id, c.label)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, width: '100%', textAlign: 'left',
+              background: 'transparent', color: 'var(--text-tertiary)', fontWeight: 500, fontSize: 14,
+              cursor: 'pointer', transition: 'background 160ms, color 160ms',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
+          >
             <span style={{ fontSize: 18, width: 24, textAlign: 'center' }}>{c.icon}</span>
             <span style={{ flex: 1 }}>{c.label}</span>
             <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, border: '1px solid var(--border-default)', color: 'var(--brand-500)' }}>Join</span>
@@ -260,11 +315,15 @@ export default function CommunityPage() {
               {['For you', 'Following', 'Trending', 'Latest'].map((label, i) => (
                 <button
                   key={label}
+                  onClick={() => { if (i !== 0) toast('Coming soon'); }}
                   style={{
                     padding: '10px 18px', fontSize: 14, fontWeight: i === 0 ? 600 : 400,
                     color: i === 0 ? 'var(--text-primary)' : 'var(--text-tertiary)',
                     borderBottom: i === 0 ? '2px solid var(--text-primary)' : '2px solid transparent',
+                    cursor: 'pointer', transition: 'color 160ms',
                   }}
+                  onMouseEnter={e => { if (i !== 0) e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                  onMouseLeave={e => { if (i !== 0) e.currentTarget.style.color = 'var(--text-tertiary)'; }}
                 >{label}</button>
               ))}
             </div>
@@ -298,7 +357,7 @@ export default function CommunityPage() {
               {composerOpen && (
                 <div style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, borderTop: '1px solid var(--border-subtle)', flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', gap: 6, flex: 1, flexWrap: 'wrap' }}>
-                    {COMMUNITIES.filter(c => c.joined).map(c => (
+                    {allCommunities.filter(c => c.joined).map(c => (
                       <button
                         key={c.id}
                         onClick={() => setSelectedCommunity(c.id)}
@@ -307,6 +366,7 @@ export default function CommunityPage() {
                           border: '1px solid var(--border-default)',
                           background: selectedCommunity === c.id ? 'var(--text-primary)' : 'transparent',
                           color: selectedCommunity === c.id ? '#fff' : 'var(--text-secondary)',
+                          cursor: 'pointer',
                         }}
                       >{c.icon} {c.label}</button>
                     ))}
@@ -342,27 +402,56 @@ export default function CommunityPage() {
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 20 }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Trending in your communities</div>
             {TRENDING.map((t, i) => (
-              <div key={i} style={{ padding: '10px 0', borderBottom: i < TRENDING.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+              <button
+                key={i}
+                onClick={() => setActive(t.community)}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  padding: '10px 8px', margin: '0 -8px',
+                  borderRadius: 10, background: 'transparent',
+                  borderBottom: i < TRENDING.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                  cursor: 'pointer', transition: 'background 160ms',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--brand-600)' }}>{t.tag}</span>
                   <span style={{ marginLeft: 'auto', padding: '2px 8px', borderRadius: 999, background: 'rgba(16,185,129,0.10)', color: 'var(--mint-600)', fontSize: 11, fontWeight: 600 }}>{t.rise}</span>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{t.posts.toLocaleString()} posts</div>
-              </div>
+              </button>
             ))}
           </div>
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 20 }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Upcoming events</div>
-            {EVENTS.map((ev, i) => (
-              <div key={i} style={{ padding: '10px 0', borderBottom: i < EVENTS.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{ev.title}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{ev.time}</span>
-                  <span style={{ padding: '2px 8px', borderRadius: 999, background: 'var(--bg-hover)', fontSize: 11, color: 'var(--text-secondary)' }}><Icon name="users" size={11} /> {ev.participants}</span>
+            {EVENTS.map((ev, i) => {
+              const isRsvped = rsvpedIds.includes(ev.id);
+              return (
+                <div key={ev.id} style={{ padding: '10px 0', borderBottom: i < EVENTS.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{ev.title}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{ev.time}</span>
+                    <span style={{ padding: '2px 8px', borderRadius: 999, background: 'var(--bg-hover)', fontSize: 11, color: 'var(--text-secondary)' }}><Icon name="users" size={11} /> {ev.participants + (isRsvped ? 1 : 0)}</span>
+                  </div>
+                  <button
+                    onClick={() => handleRsvp(ev.id)}
+                    style={{
+                      marginTop: 8, width: '100%', height: 32, borderRadius: 999,
+                      background: isRsvped ? 'var(--brand-500)' : 'var(--bg-hover)',
+                      color: isRsvped ? '#fff' : 'var(--text-primary)',
+                      border: `1px solid ${isRsvped ? 'var(--brand-500)' : 'var(--border-subtle)'}`,
+                      fontSize: 12, fontWeight: 500,
+                      cursor: 'pointer', transition: 'all 160ms',
+                    }}
+                    onMouseEnter={e => { if (!isRsvped) { e.currentTarget.style.background = 'var(--border-subtle)'; } }}
+                    onMouseLeave={e => { if (!isRsvped) { e.currentTarget.style.background = 'var(--bg-hover)'; } }}
+                  >
+                    {isRsvped ? "RSVP'd ✓" : 'RSVP →'}
+                  </button>
                 </div>
-                <button style={{ marginTop: 8, width: '100%', height: 32, borderRadius: 999, background: 'var(--bg-hover)', border: '1px solid var(--border-subtle)', fontSize: 12, fontWeight: 500 }}>RSVP →</button>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 20 }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Mentors to follow</div>
@@ -373,7 +462,16 @@ export default function CommunityPage() {
                   <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{m.sub}</div>
                 </div>
-                <button style={{ fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 999, border: '1px solid var(--border-default)', color: 'var(--brand-500)' }}>Follow</button>
+                <button
+                  onClick={() => toast('Coming soon')}
+                  style={{
+                    fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 999,
+                    border: '1px solid var(--border-default)', color: 'var(--brand-500)',
+                    background: 'transparent', cursor: 'pointer', transition: 'all 160ms',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-strong)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
+                >Follow</button>
               </div>
             ))}
           </div>
