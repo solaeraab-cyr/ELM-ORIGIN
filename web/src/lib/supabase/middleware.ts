@@ -30,11 +30,7 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  console.log("[PROXY]", pathname, {
-    hasUser: !!user,
-    userId: user?.id,
-    cookieNames: request.cookies.getAll().map((c) => c.name),
-  });
+  console.log(`[mw] ${pathname} user=${user?.id ?? 'none'}`);
 
   // Public routes: marketing landing, auth pages, mentor onboarding, utility/legal pages.
   const PUBLIC_EXACT = new Set(["/"]);
@@ -57,7 +53,7 @@ export async function updateSession(request: NextRequest) {
     PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 
   if (!user && !isPublic) {
-    console.log("[PROXY] redirecting to /login (no user, not public)", pathname);
+    console.log(`[mw] ${pathname} -> /login (no user, gated route)`);
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
