@@ -109,11 +109,12 @@ export default function ProfilePage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not signed in');
-      const { error } = await supabase.from('profiles').update({
+      const { error } = await supabase.from('profiles').upsert({
+        id:        user.id,
         full_name: draft.name.trim() || null,
         handle:    draft.handle.trim() || null,
         bio:       draft.bio.trim() || null,
-      }).eq('id', user.id);
+      }, { onConflict: 'id' });
       if (error) throw error;
       setSaved(draft);
       setEdit(false);
