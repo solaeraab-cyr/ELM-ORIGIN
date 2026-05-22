@@ -117,7 +117,7 @@ export async function rejectFriendRequest(requestId: string) {
 
     const { error } = await supabase
       .from('friends')
-      .update({ status: 'declined' })
+      .delete()
       .eq('id', requestId)
       .eq('receiver_id', user.id);
     if (error) throw error;
