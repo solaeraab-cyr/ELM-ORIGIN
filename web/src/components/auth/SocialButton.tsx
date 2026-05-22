@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 type Provider = 'google' | 'apple';
@@ -10,8 +10,13 @@ interface SocialButtonProps {
 }
 
 export default function SocialButton({ provider }: SocialButtonProps) {
+  const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleClick = async () => {
     setError(null);
@@ -34,6 +39,26 @@ export default function SocialButton({ provider }: SocialButtonProps) {
       setLoading(false);
     }
   };
+
+  if (!mounted) {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: 44,
+          background: '#f1f5f9',
+          borderRadius: 8,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#64748b',
+          fontSize: 14,
+        }}
+      >
+        Loading...
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

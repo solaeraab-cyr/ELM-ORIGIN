@@ -30,7 +30,8 @@ export default function Sidebar({ isMentor, user, pendingFriendRequests = 0 }: S
 
   return (
     <aside
-      className="hidden md:flex fixed inset-y-0 left-0"
+      data-sidebar
+      className="shell-sidebar hidden md:flex fixed inset-y-0 left-0"
       style={{
         width: 232,
         flexShrink: 0,

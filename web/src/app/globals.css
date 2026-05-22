@@ -136,6 +136,24 @@ img, video, canvas, svg, iframe { max-width: 100%; }
 
 /* Mobile (<= 768px) */
 @media (max-width: 768px) {
+  /* Shell sidebar — hide entirely on mobile (belt-and-suspenders to Tailwind hidden md:flex) */
+  .shell-sidebar,
+  [data-sidebar] {
+    display: none !important;
+    width: 0 !important;
+  }
+
+  /* Shell main content — drop sidebar offset and tighten padding */
+  .shell-main {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+  }
+
+  /* Generic grid containers collapse to a single column */
+  [data-grid] {
+    grid-template-columns: 1fr !important;
+  }
+
   /* Sidebar widths — already toggled via Tailwind, but belt-and-suspenders */
   [style*="width:260px"],
   [style*="width:240px"],
