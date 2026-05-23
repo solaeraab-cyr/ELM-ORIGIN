@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Icon from '@/components/primitives/Icon';
 import CreateRoomModal from '@/components/rooms/CreateRoomModal';
 import RoomCardView from '@/components/rooms/RoomCardView';
@@ -24,15 +24,21 @@ export default function HomeClient({ publicRooms, myRooms, greetingName, streak 
   const [createOpen, setCreateOpen] = useState(false);
   const [checked, setChecked] = useState<number[]>([0, 1]);
 
-  const now = new Date();
-  const dayName = now.toLocaleDateString('en-US', { weekday: 'long' });
-  const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  // Compute the local date on the client only — rendering it during SSR uses the
+  // server's timezone and mismatches the client's, causing a hydration error.
+  const [dateLabel, setDateLabel] = useState('');
+  useEffect(() => {
+    const now = new Date();
+    const dayName = now.toLocaleDateString('en-US', { weekday: 'long' });
+    const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+    setDateLabel(`${dayName}, ${dateStr}`);
+  }, []);
 
   return (
     <div style={{ padding: '32px 40px', maxWidth: 1120, margin: '0 auto' }}>
       <div style={{ marginBottom: 32, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
         <div>
-          <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 4, fontFamily: 'Instrument Sans, system-ui' }}>{dayName}, {dateStr}</p>
+          <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 4, fontFamily: 'Instrument Sans, system-ui', minHeight: 16 }}>{dateLabel}</p>
           <h1 style={{ fontFamily: 'Fraunces, serif', fontSize: 38, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 4 }}>
             Good afternoon, {greetingName}
           </h1>
