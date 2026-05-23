@@ -207,8 +207,39 @@ img, video, canvas, svg, iframe { max-width: 100%; }
   [style*="grid-template-columns:1fr 360px"],
   [style*="grid-template-columns:320px 1fr"],
   [style*="grid-template-columns:280px 1fr"],
-  [style*="grid-template-columns:240px 1fr"] {
+  [style*="grid-template-columns:240px 1fr"],
+  [style*="grid-template-columns:220px 1fr"],
+  [style*="grid-template-columns:200px 1fr"],
+  [style*="grid-template-columns:180px 1fr"],
+  [style*="grid-template-columns:1fr 300px"],
+  [style*="grid-template-columns:1fr 240px"],
+  [style*="grid-template-columns:1fr 200px"],
+  [style*="grid-template-columns:248px minmax"],
+  [style*="grid-template-columns:200px 1fr 240px"],
+  [style*="grid-template-columns:minmax(0, 240px)"],
+  [style*="grid-template-columns:minmax(0, 1fr) minmax(0, 320px)"],
+  [style*="grid-template-columns:minmax(0, 1fr) 320px"] {
     grid-template-columns: 1fr !important;
+  }
+
+  /* Auto-fit / auto-fill grids whose minimum track is wider than a phone
+     viewport (~328px usable) — collapse to a single column to stop overflow.
+     Lower floors (<=300px) are already fluid and left untouched. */
+  [style*="minmax(320px"],
+  [style*="minmax(340px"],
+  [style*="minmax(360px"],
+  [style*="minmax(380px"],
+  [style*="minmax(400px"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Fixed min-widths that exceed a phone viewport become fluid */
+  [style*="min-width:340px"],
+  [style*="min-width:360px"],
+  [style*="min-width:380px"],
+  [style*="min-width:400px"] {
+    min-width: 0 !important;
+    width: 100% !important;
   }
 
   /* Cap any inline max-width that's wider than the viewport */
@@ -240,6 +271,7 @@ img, video, canvas, svg, iframe { max-width: 100%; }
     font-size: 28px !important;
     line-height: 1.1 !important;
   }
+  [style*="font-size:42"],
   [style*="font-size:44"],
   [style*="font-size:48"],
   [style*="font-size:52"] {
@@ -292,6 +324,34 @@ img, video, canvas, svg, iframe { max-width: 100%; }
   header button[style*="min-width:260"] span[style*="margin-left:auto"] {
     display: none !important;
   }
+
+  /* ── Video room (Google-Meet style) on mobile ────────────────────────── */
+  /* Controls bar: shrink buttons and allow wrapping so 8+ controls fit */
+  [data-video-controls] {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    padding: 8px 10px !important;
+    justify-content: center !important;
+  }
+  [data-video-controls] button {
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 40px !important;
+  }
+  /* Side panels (notes / chat / participants) become full-screen overlays */
+  [data-video-panel] {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100% !important;
+    z-index: 1100 !important;
+    border-left: none !important;
+  }
+  /* Video grid: always single column on phones (clearer than tiny tiles) */
+  [data-video-grid] {
+    grid-template-columns: 1fr !important;
+    max-width: 100% !important;
+  }
 }
 
 /* Tablet (769px–1024px) */
@@ -305,5 +365,15 @@ img, video, canvas, svg, iframe { max-width: 100%; }
   [style*="grid-template-columns:repeat(3"],
   [style*="grid-template-columns:repeat(4"] {
     grid-template-columns: repeat(2, 1fr) !important;
+  }
+  /* Triple fixed-rail layout (e.g. community) — its 248px + 308px rails plus
+     the 232px shell sidebar exceed a tablet viewport. Drop the right rail. */
+  [style*="grid-template-columns:248px minmax"] {
+    grid-template-columns: 248px minmax(0, 1fr) !important;
+  }
+  [style*="minmax(360px"],
+  [style*="minmax(380px"],
+  [style*="minmax(400px"] {
+    grid-template-columns: 1fr !important;
   }
 }

@@ -336,7 +336,7 @@ function ControlButton({
 // ════════════════════════════════════════════════════════════════════════════
 function PanelShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div style={{
+    <div data-video-panel style={{
       width: 320, flexShrink: 0, height: '100%', background: PANEL_BG,
       borderLeft: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column',
       animation: 'lkPanelIn 300ms ease',
@@ -634,7 +634,7 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
               </div>
             </div>
           ) : (
-            <div style={{
+            <div data-video-grid style={{
               flex: 1, display: 'grid', gap: 12, minHeight: 0, overflowY: 'auto',
               gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
               alignContent: 'center', justifyItems: 'center',
@@ -672,10 +672,11 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
 
       {/* Floating controls bar */}
       <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 18, paddingTop: 4 }}>
-        <div style={{
+        <div data-video-controls style={{
           display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderRadius: 18,
           background: BAR_BG, backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
           boxShadow: '0 8px 30px rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.08)',
+          maxWidth: 'calc(100vw - 24px)',
         }}>
           <span style={{ color: '#b6bbcd', fontSize: 13, fontWeight: 600, marginRight: 4, fontFamily: 'JetBrains Mono, monospace' }}>
             {count}
