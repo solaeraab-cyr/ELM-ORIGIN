@@ -148,6 +148,10 @@ export async function getRoom(id: string) {
   }
 }
 
+export type CreateRoomResult =
+  | { ok: true; id: string }
+  | { ok: false; error: string };
+
 export async function createRoom(input: {
   title: string;
   subject: string;
@@ -157,15 +161,15 @@ export async function createRoom(input: {
   maxParticipants: number;
   durationMinutes: number;
   requiresApproval?: boolean;
-}) {
+}): Promise<CreateRoomResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not signed in');
+  if (!user) return { ok: false, error: 'Not signed in' };
 
   const title = input.title.trim();
   const subject = input.subject.trim();
-  if (!title) throw new Error('Title is required');
-  if (!subject) throw new Error('Subject is required');
+  if (!title) return { ok: false, error: 'Title is required' };
+  if (!subject) return { ok: false, error: 'Subject is required' };
 
   const { data, error } = await supabase
     .from('rooms')
@@ -183,17 +187,21 @@ export async function createRoom(input: {
     })
     .select('id')
     .single();
-  if (error) throw new Error(error.message);
+  if (error || !data) {
+    console.error('[createRoom]', error?.message);
+    return { ok: false, error: error?.message || 'Could not create room' };
+  }
 
-  // Add the creator as host participant.
-  await supabase
+  // Add the creator as host participant. Log failures rather than swallowing
+  // them silently — an RLS gap here was invisible for a long time.
+  const { error: partErr } = await supabase
     .from('room_participants')
-    .insert({ room_id: data.id, user_id: user.id, role: 'host' })
-    .then(() => {}, () => {});
+    .insert({ room_id: data.id, user_id: user.id, role: 'host' });
+  if (partErr) console.error('[createRoom] host participant insert', partErr.message);
 
   revalidatePath('/home');
   revalidatePath('/rooms');
-  return data as { id: string };
+  return { ok: true, id: data.id };
 }
 
 export type JoinResult = 'joined' | 'already' | 'full' | 'pending' | 'error';
@@ -230,7 +238,10 @@ export async function joinRoom(roomId: string): Promise<JoinResult> {
   const { error } = await supabase
     .from('room_participants')
     .insert({ room_id: roomId, user_id: user.id, role: 'participant' });
-  if (error) return 'error';
+  if (error) {
+    console.error('[joinRoom]', error.message);
+    return 'error';
+  }
   revalidatePath('/home');
   return 'joined';
 }

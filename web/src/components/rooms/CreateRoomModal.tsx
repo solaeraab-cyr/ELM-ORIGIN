@@ -45,23 +45,23 @@ export default function CreateRoomModal({ onClose }: Props) {
   const create = async () => {
     if (!canCreate) return;
     setSubmitting(true);
-    try {
-      const { id } = await createRoom({
-        title,
-        subject,
-        description,
-        roomType,
-        visibility,
-        maxParticipants: maxP,
-        durationMinutes: duration,
-        requiresApproval: visibility === 'private' ? requiresApproval : false,
-      });
-      toast('Room created — entering now…');
-      router.push(`/room/${id}`);
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Could not create room');
+    const result = await createRoom({
+      title,
+      subject,
+      description,
+      roomType,
+      visibility,
+      maxParticipants: maxP,
+      durationMinutes: duration,
+      requiresApproval: visibility === 'private' ? requiresApproval : false,
+    });
+    if (!result.ok) {
+      toast(result.error);
       setSubmitting(false);
+      return;
     }
+    toast('Room created — entering now…');
+    router.push(`/room/${result.id}`);
   };
 
   return (
