@@ -3,10 +3,12 @@ import { getMyProfile } from '@/app/actions/profiles';
 import HomeClient from './HomeClient';
 
 export default async function HomePage() {
+  // Each call already returns safe defaults, but guard with .catch so a single
+  // failure can never turn the whole page into a 500.
   const [publicRooms, myRooms, profile] = await Promise.all([
-    listActiveRooms(),
-    listMyRooms(),
-    getMyProfile(),
+    listActiveRooms().catch(() => []),
+    listMyRooms().catch(() => []),
+    getMyProfile().catch(() => null),
   ]);
   const firstName = (profile?.full_name as string | null)?.split(' ')[0] || 'there';
   const streak = (profile?.streak as number | null) ?? 0;

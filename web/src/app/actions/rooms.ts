@@ -73,9 +73,9 @@ export async function listActiveRooms(): Promise<RoomCard[]> {
 // Rooms the current user created OR is a participant in (includes private).
 export async function listMyRooms(): Promise<RoomCard[]> {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
     const { data: parts } = await supabase
       .from('room_participants')
       .select('room_id')
