@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Icon from '../primitives/Icon';
 import AvatarDropdown from './AvatarDropdown';
 import NotificationDropdown from './NotificationDropdown';
+import SearchBar from './SearchBar';
 import { unreadNotificationCount } from '@/app/actions/notifications';
 import { useRealtimeTable } from '@/hooks/useRealtimeSubscription';
 import { toast } from '@/lib/toast';
@@ -56,17 +57,7 @@ export default function TopBar({ user }: TopBarProps) {
       <div style={{ flex: 1 }} />
 
       {/* Search */}
-      <button style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        height: 40, padding: '0 16px', borderRadius: 999,
-        color: 'var(--text-tertiary)', fontSize: 13,
-        minWidth: 260, background: 'var(--bg-surface)',
-        border: '1px solid var(--border-subtle)', cursor: 'text',
-      }}>
-        <Icon name="search" size={15} />
-        <span>Search mentors, rooms, topics…</span>
-        <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace', fontSize: 11, border: '1px solid var(--border-default)', padding: '2px 6px', borderRadius: 4, color: 'var(--text-muted)' }}>⌘K</span>
-      </button>
+      <SearchBar />
 
       {/* Notifications */}
       <div style={{ position: 'relative' }}>

@@ -4,42 +4,34 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/primitives';
 import { toast } from '@/lib/toast';
-
-const SUBJECTS = ['Algorithms', 'Calculus', 'Linear Algebra', 'Quantum Physics', 'Organic Chemistry', 'Molecular Biology', 'Mechanical Eng', 'Microeconomics', 'Marketing', 'Constitutional Law', 'Anatomy', 'Statistics', 'UX Research', 'Mandarin'];
-
-type Mode = 'focus' | 'discussion' | 'collab' | 'group-interview';
-type RoomType = 'public' | 'private';
-
-const MODES = [
-  { v: 'focus' as const,        l: '🔇 Silent focus', d: 'No talking · pure work' },
-  { v: 'discussion' as const,   l: '💬 Discussion',    d: 'Talk freely · ask questions' },
-  { v: 'collab' as const,       l: '⚡ Collaborative', d: 'Shared whiteboard · work together' },
-  { v: 'group-interview' as const, l: '🎤 Group Interview', d: 'Practice mock rounds (max 6)' },
-];
+import { createRoom, type RoomType } from '@/app/actions/rooms';
 
 interface Props { onClose: () => void }
 
 const inputStyle: React.CSSProperties = {
-  width: '100%', height: 40, padding: '0 14px',
+  width: '100%', minHeight: 40, padding: '10px 14px',
   background: 'var(--bg-base)', border: '1px solid var(--border-default)',
-  borderRadius: 10, fontSize: 13, color: 'var(--text-primary)', outline: 'none',
+  borderRadius: 10, fontSize: 14, color: 'var(--text-primary)', outline: 'none',
+  fontFamily: 'Inter, system-ui',
 };
 
 const labelStyle: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
-  color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, display: 'block',
+  color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 6, display: 'block',
 };
+
+const DURATIONS = [30, 45, 60, 90, 120];
 
 export default function CreateRoomModal({ onClose }: Props) {
   const router = useRouter();
-  const [step, setStep] = useState(1);
-  const [name, setName] = useState('');
+  const [title, setTitle] = useState('');
   const [subject, setSubject] = useState('');
-  const [subjQuery, setSubjQuery] = useState('');
-  const [subjOpen, setSubjOpen] = useState(false);
-  const [mode, setMode] = useState<Mode>('focus');
+  const [description, setDescription] = useState('');
+  const [roomType, setRoomType] = useState<RoomType>('study');
+  const [visibility, setVisibility] = useState<'public' | 'private'>('public');
   const [maxP, setMaxP] = useState(10);
-  const [type, setType] = useState<RoomType>('public');
+  const [duration, setDuration] = useState(60);
+  const [requiresApproval, setRequiresApproval] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -48,32 +40,29 @@ export default function CreateRoomModal({ onClose }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, submitting]);
 
-  // Enforce 6 max when interview mode
-  useEffect(() => {
-    if (mode === 'group-interview' && maxP > 6) setMaxP(6);
-  }, [mode, maxP]);
+  const canCreate = title.trim().length > 0 && subject.trim().length > 0 && !submitting;
 
-  const canContinue =
-    (step === 1 && name.trim()) ||
-    (step === 2 && subject) ||
-    (step === 3) ||
-    (step === 4);
-
-  const create = () => {
+  const create = async () => {
+    if (!canCreate) return;
     setSubmitting(true);
-    setTimeout(() => {
-      const newId = mode === 'group-interview' ? `gi-${Date.now()}` : `r-${Date.now()}`;
+    try {
+      const { id } = await createRoom({
+        title,
+        subject,
+        description,
+        roomType,
+        visibility,
+        maxParticipants: maxP,
+        durationMinutes: duration,
+        requiresApproval: visibility === 'private' ? requiresApproval : false,
+      });
       toast('Room created — entering now…');
-      router.push(`/room/${newId}`);
-    }, 800);
+      router.push(`/room/${id}`);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Could not create room');
+      setSubmitting(false);
+    }
   };
-
-  const next = () => {
-    if (step === 4) { create(); return; }
-    setStep(s => s + 1);
-  };
-
-  const filteredSubj = SUBJECTS.filter(s => s.toLowerCase().includes(subjQuery.toLowerCase()));
 
   return (
     <div onClick={() => { if (!submitting) onClose(); }} style={{
@@ -89,176 +78,108 @@ export default function CreateRoomModal({ onClose }: Props) {
       }}>
         {/* Header */}
         <div style={{ padding: '22px 28px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)' }}>
-          <div>
-            <div style={{ fontFamily: 'Fraunces, serif', fontSize: 22, fontWeight: 700 }}>Start a study room</div>
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>Step {step} of 4</div>
-          </div>
+          <div style={{ fontFamily: 'Fraunces, serif', fontSize: 22, fontWeight: 700 }}>Start a study room</div>
           <button onClick={onClose} disabled={submitting} style={{ width: 30, height: 30, borderRadius: 8, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="x" size={16} />
           </button>
         </div>
 
-        {/* Progress strip */}
-        <div style={{ padding: '12px 28px 0', display: 'flex', gap: 4 }}>
-          {[1, 2, 3, 4].map(s => (
-            <div key={s} style={{
-              flex: 1, height: 3, borderRadius: 2,
-              background: s <= step ? 'var(--text-primary)' : 'var(--bg-hover)',
-              transition: 'background 300ms',
-            }} />
-          ))}
-        </div>
-
         <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {step === 1 && (
-            <>
-              <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 24, fontWeight: 500, marginBottom: 8 }}>What&apos;s the room name?</h2>
-              <div>
-                <label style={labelStyle}>Room name · {name.length}/48</label>
-                <input
-                  autoFocus
-                  value={name}
-                  onChange={e => setName(e.target.value.slice(0, 48))}
-                  placeholder="Wednesday DP grind"
-                  style={inputStyle}
-                />
-              </div>
-            </>
-          )}
+          <div>
+            <label style={labelStyle}>Title <span style={{ color: 'var(--danger-500)' }}>*</span></label>
+            <input autoFocus value={title} onChange={e => setTitle(e.target.value.slice(0, 80))} placeholder="Wednesday DP grind" style={inputStyle} />
+          </div>
 
-          {step === 2 && (
-            <>
-              <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 24, fontWeight: 500, marginBottom: 8 }}>Pick a subject</h2>
-              <div style={{ position: 'relative' }}>
-                <label style={labelStyle}>Subject</label>
-                <button
-                  onClick={() => setSubjOpen(!subjOpen)}
-                  style={{ ...inputStyle, textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                >
-                  <span style={{ color: subject ? 'var(--text-primary)' : 'var(--text-muted)' }}>{subject || 'Select a subject…'}</span>
-                  <Icon name="chevronD" size={14} />
-                </button>
-                {subjOpen && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 12, maxHeight: 220, overflowY: 'auto', zIndex: 10, boxShadow: 'var(--shadow-md)' }}>
-                    <input
-                      autoFocus
-                      value={subjQuery}
-                      onChange={e => setSubjQuery(e.target.value)}
-                      placeholder="Search…"
-                      style={{ width: '100%', height: 36, padding: '0 12px', border: 'none', borderBottom: '1px solid var(--border-subtle)', background: 'transparent', fontSize: 13, outline: 'none' }}
-                    />
-                    {filteredSubj.map(s => (
-                      <button
-                        key={s}
-                        onClick={() => { setSubject(s); setSubjOpen(false); setSubjQuery(''); }}
-                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 13, color: 'var(--text-primary)' }}
-                      >{s}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
+          <div>
+            <label style={labelStyle}>Subject <span style={{ color: 'var(--danger-500)' }}>*</span></label>
+            <input value={subject} onChange={e => setSubject(e.target.value.slice(0, 60))} placeholder="Algorithms, Calculus, Organic Chemistry…" style={inputStyle} />
+          </div>
 
-          {step === 3 && (
-            <>
-              <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 24, fontWeight: 500, marginBottom: 8 }}>How will you study?</h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {MODES.map(m => {
-                  const sel = mode === m.v;
-                  return (
-                    <button
-                      key={m.v}
-                      onClick={() => setMode(m.v)}
-                      style={{
-                        padding: 14, borderRadius: 12, textAlign: 'left',
-                        background: sel ? 'rgba(79,70,229,0.06)' : 'var(--bg-surface)',
-                        border: `1.5px solid ${sel ? 'var(--brand-500)' : 'var(--border-default)'}`,
-                        transition: 'all 180ms', cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 2 }}>{m.l}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{m.d}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
+          <div>
+            <label style={labelStyle}>Description <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+            <textarea value={description} onChange={e => setDescription(e.target.value.slice(0, 280))} placeholder="What's the focus for this session?" rows={2} style={{ ...inputStyle, resize: 'none', lineHeight: 1.5 }} />
+          </div>
 
-          {step === 4 && (
-            <>
-              <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 24, fontWeight: 500, marginBottom: 8 }}>Final details</h2>
-              <div>
-                <label style={labelStyle}>Max participants {mode === 'group-interview' && <span style={{ color: 'var(--text-tertiary)', fontWeight: 400, marginLeft: 4 }}>(locked at 6)</span>}</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                  <button
-                    onClick={() => setMaxP(Math.max(2, maxP - 1))}
-                    disabled={mode === 'group-interview'}
-                    style={{ width: 36, height: 36, borderRadius: '10px 0 0 10px', border: '1px solid var(--border-default)', background: 'var(--bg-surface)', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 700 }}
-                  >−</button>
-                  <div style={{ minWidth: 60, height: 36, padding: '0 14px', borderTop: '1px solid var(--border-default)', borderBottom: '1px solid var(--border-default)', background: 'var(--bg-surface)', fontSize: 14, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{maxP}</div>
-                  <button
-                    onClick={() => setMaxP(Math.min(mode === 'group-interview' ? 6 : 50, maxP + 1))}
-                    disabled={mode === 'group-interview'}
-                    style={{ width: 36, height: 36, borderRadius: '0 10px 10px 0', border: '1px solid var(--border-default)', background: 'var(--bg-surface)', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 700 }}
-                  >+</button>
-                </div>
+          <div>
+            <label style={labelStyle}>Room type</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {([['study', '📚 Study', 'Focused individual work alongside others'], ['collaboration', '⚡ Collaboration', 'Work together, talk, share']] as const).map(([v, l, d]) => {
+                const sel = roomType === v;
+                return (
+                  <button key={v} onClick={() => setRoomType(v as RoomType)} style={{
+                    flex: 1, padding: 12, borderRadius: 12, textAlign: 'left',
+                    background: sel ? 'rgba(79,70,229,0.06)' : 'var(--bg-surface)',
+                    border: `1.5px solid ${sel ? 'var(--brand-500)' : 'var(--border-default)'}`,
+                    cursor: 'pointer', transition: 'all 160ms',
+                  }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{l}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.4 }}>{d}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Visibility</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {(['public', 'private'] as const).map(t => (
+                  <button key={t} onClick={() => setVisibility(t)} style={{
+                    flex: 1, height: 40, borderRadius: 999, fontSize: 13, fontWeight: 600,
+                    background: visibility === t ? 'var(--text-primary)' : 'var(--bg-surface)',
+                    color: visibility === t ? '#fff' : 'var(--text-secondary)',
+                    border: `1px solid ${visibility === t ? 'var(--text-primary)' : 'var(--border-subtle)'}`,
+                    cursor: 'pointer',
+                  }}>{t === 'public' ? '🌐 Public' : '🔒 Private'}</button>
+                ))}
               </div>
-              <div>
-                <label style={labelStyle}>Visibility</label>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  {(['public', 'private'] as const).map(t => (
-                    <button
-                      key={t}
-                      onClick={() => setType(t)}
-                      style={{
-                        flex: 1, height: 40, borderRadius: 999, fontSize: 13, fontWeight: 600,
-                        background: type === t ? 'var(--text-primary)' : 'var(--bg-surface)',
-                        color: type === t ? '#fff' : 'var(--text-secondary)',
-                        border: `1px solid ${type === t ? 'var(--text-primary)' : 'var(--border-subtle)'}`,
-                      }}
-                    >{t === 'public' ? '🌐 Public' : '🔒 Private'}</button>
-                  ))}
-                </div>
-              </div>
-              <div style={{ background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: 14, fontSize: 13, color: 'var(--text-secondary)' }}>
-                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Ready to launch</div>
-                <div>{name} · {subject} · {MODES.find(m => m.v === mode)?.l} · up to {maxP} · {type}</div>
-              </div>
-            </>
+            </div>
+            <div style={{ width: 150 }}>
+              <label style={labelStyle}>Duration</label>
+              <select value={duration} onChange={e => setDuration(Number(e.target.value))} style={{ ...inputStyle, height: 40, cursor: 'pointer' }}>
+                {DURATIONS.map(d => <option key={d} value={d}>{d} min</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Max participants</label>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <button onClick={() => setMaxP(Math.max(2, maxP - 1))} style={{ width: 38, height: 38, borderRadius: '10px 0 0 10px', border: '1px solid var(--border-default)', background: 'var(--bg-surface)', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>−</button>
+              <input
+                type="number"
+                value={maxP}
+                min={2}
+                max={50}
+                onChange={e => setMaxP(Math.max(2, Math.min(50, Number(e.target.value) || 2)))}
+                style={{ width: 64, height: 38, textAlign: 'center', borderTop: '1px solid var(--border-default)', borderBottom: '1px solid var(--border-default)', border: '1px solid var(--border-default)', background: 'var(--bg-surface)', fontSize: 14, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)', outline: 'none' }}
+              />
+              <button onClick={() => setMaxP(Math.min(50, maxP + 1))} style={{ width: 38, height: 38, borderRadius: '0 10px 10px 0', border: '1px solid var(--border-default)', background: 'var(--bg-surface)', color: 'var(--text-secondary)', fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>+</button>
+            </div>
+          </div>
+
+          {visibility === 'private' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>
+              <input type="checkbox" checked={requiresApproval} onChange={e => setRequiresApproval(e.target.checked)} />
+              Require approval before others can join
+            </label>
           )}
         </div>
 
         {/* Footer */}
         <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: 10 }}>
-          {step > 1 && !submitting && (
-            <button
-              onClick={() => setStep(s => s - 1)}
-              style={{ flex: 1, height: 44, padding: '0 18px', borderRadius: 999, background: 'var(--bg-hover)', border: '1px solid var(--border-default)', fontSize: 14, fontWeight: 500 }}
-            >Back</button>
-          )}
-          <button
-            onClick={next}
-            disabled={!canContinue || submitting}
-            style={{
-              flex: step === 1 ? 1 : 2, height: 48, padding: '0 22px', borderRadius: 999,
-              background: 'var(--gradient-brand)', color: '#fff',
-              fontSize: 14, fontWeight: 600,
-              opacity: !canContinue || submitting ? 0.55 : 1,
-              cursor: !canContinue || submitting ? 'default' : 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-            }}
-          >
+          <button onClick={onClose} disabled={submitting} style={{ flex: 1, height: 48, borderRadius: 999, background: 'var(--bg-hover)', border: '1px solid var(--border-default)', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={create} disabled={!canCreate} style={{
+            flex: 2, height: 48, padding: '0 22px', borderRadius: 999,
+            background: 'var(--gradient-brand)', color: '#fff', fontSize: 14, fontWeight: 600,
+            opacity: !canCreate ? 0.55 : 1, cursor: !canCreate ? 'default' : 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          }}>
             {submitting ? (
-              <>
-                <span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: 999, animation: 'spin 0.8s linear infinite' }} />
-                Creating…
-              </>
-            ) : step === 4 ? (
-              <>Create & Enter Room <Icon name="chevronR" size={13} /></>
+              <><span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: 999, animation: 'spin 0.8s linear infinite' }} /> Creating…</>
             ) : (
-              <>Continue <Icon name="chevronR" size={13} /></>
+              <>Create &amp; Enter Room <Icon name="chevronR" size={13} /></>
             )}
           </button>
         </div>

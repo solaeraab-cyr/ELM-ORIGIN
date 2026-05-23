@@ -3,20 +3,58 @@
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 
-// Schema mapping (live DB → legacy UI shape, via PostgREST aliases):
-//   title          → topic
-//   room_type      → mode
-//   creator_id FK  → host (profiles join)
-// Writes use the real column names.
+// Live `rooms` schema (real columns):
+//   id, creator_id, title, subject, description, duration_minutes,
+//   max_participants, is_public, requires_approval,
+//   room_type CHECK ('study' | 'collaboration'),
+//   scheduled_for, status CHECK ('active'|'archived'|'cancelled'),
+//   created_at, updated_at
+// room_participants: room_id, user_id, role ('host'|'participant'), joined_at
+// room_messages: id, room_id, user_id, content, created_at
 
-export async function listActiveRooms() {
+export type RoomType = 'study' | 'collaboration';
+
+export type RoomCard = {
+  id: string;
+  creator_id: string;
+  title: string;
+  subject: string | null;
+  description: string | null;
+  room_type: RoomType;
+  is_public: boolean;
+  requires_approval: boolean;
+  max_participants: number;
+  duration_minutes: number | null;
+  status: string;
+  created_at: string;
+  participant_count: number;
+  host: { full_name: string | null; handle: string | null; avatar_url: string | null } | null;
+};
+
+const ROOM_SELECT =
+  'id, creator_id, title, subject, description, room_type, is_public, requires_approval, max_participants, duration_minutes, status, created_at, host:profiles!creator_id(full_name, handle, avatar_url)';
+
+async function attachCounts(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  rooms: Omit<RoomCard, 'participant_count'>[],
+): Promise<RoomCard[]> {
+  if (rooms.length === 0) return [];
+  const ids = rooms.map(r => r.id);
+  const counts: Record<string, number> = {};
+  const { data } = await supabase
+    .from('room_participants')
+    .select('room_id')
+    .in('room_id', ids);
+  for (const row of data ?? []) counts[row.room_id] = (counts[row.room_id] ?? 0) + 1;
+  return rooms.map(r => ({ ...r, participant_count: counts[r.id] ?? 0 }));
+}
+
+export async function listActiveRooms(): Promise<RoomCard[]> {
   const supabase = await createClient();
   try {
     const { data, error } = await supabase
       .from('rooms')
-      .select(
-        'id, topic:title, subject, mode:room_type, max_participants, created_at, host:profiles!creator_id(full_name, handle, avatar_url)'
-      )
+      .select(ROOM_SELECT)
       .eq('is_public', true)
       .eq('status', 'active')
       .order('created_at', { ascending: false })
@@ -25,13 +63,81 @@ export async function listActiveRooms() {
       console.error('[listActiveRooms]', error.message);
       return [];
     }
-    return (data ?? []).map((r) => ({ ...r, pomodoro: '25/5' }));
+    return attachCounts(supabase, (data ?? []) as unknown as Omit<RoomCard, 'participant_count'>[]);
   } catch (err) {
     console.error('[listActiveRooms] threw', err);
     return [];
   }
 }
 
+// Rooms the current user created OR is a participant in (includes private).
+export async function listMyRooms(): Promise<RoomCard[]> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+  try {
+    const { data: parts } = await supabase
+      .from('room_participants')
+      .select('room_id')
+      .eq('user_id', user.id);
+    const joinedIds = (parts ?? []).map(p => p.room_id);
+
+    // creator rooms OR joined rooms, active only, dedup by id
+    const orFilter = joinedIds.length > 0
+      ? `creator_id.eq.${user.id},id.in.(${joinedIds.join(',')})`
+      : `creator_id.eq.${user.id}`;
+
+    const { data, error } = await supabase
+      .from('rooms')
+      .select(ROOM_SELECT)
+      .eq('status', 'active')
+      .or(orFilter)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) {
+      console.error('[listMyRooms]', error.message);
+      return [];
+    }
+    return attachCounts(supabase, (data ?? []) as unknown as Omit<RoomCard, 'participant_count'>[]);
+  } catch (err) {
+    console.error('[listMyRooms] threw', err);
+    return [];
+  }
+}
+
+export type RoomDetail = RoomCard & {
+  amICreator: boolean;
+  amIParticipant: boolean;
+  isFull: boolean;
+};
+
+export async function getRoomDetail(id: string): Promise<RoomDetail | null> {
+  const supabase = await createClient();
+  try {
+    const { data, error } = await supabase.from('rooms').select(ROOM_SELECT).eq('id', id).single();
+    if (error || !data) return null;
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data: parts } = await supabase
+      .from('room_participants')
+      .select('user_id')
+      .eq('room_id', id);
+    const participantIds = (parts ?? []).map(p => p.user_id);
+    const room = data as unknown as Omit<RoomCard, 'participant_count'>;
+    const participant_count = participantIds.length;
+    return {
+      ...room,
+      participant_count,
+      amICreator: !!user && room.creator_id === user.id,
+      amIParticipant: !!user && participantIds.includes(user.id),
+      isFull: participant_count >= room.max_participants,
+    };
+  } catch (err) {
+    console.error('[getRoomDetail] threw', err);
+    return null;
+  }
+}
+
+// Kept for backward-compat (raw row).
 export async function getRoom(id: string) {
   const supabase = await createClient();
   try {
@@ -43,46 +149,90 @@ export async function getRoom(id: string) {
 }
 
 export async function createRoom(input: {
-  topic: string;
+  title: string;
   subject: string;
-  mode: 'focus' | 'discussion' | 'collab' | 'group-interview';
-  maxParticipants: number;
+  description?: string;
+  roomType: RoomType;
   visibility: 'public' | 'private';
+  maxParticipants: number;
+  durationMinutes: number;
+  requiresApproval?: boolean;
 }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not signed in');
+
+  const title = input.title.trim();
+  const subject = input.subject.trim();
+  if (!title) throw new Error('Title is required');
+  if (!subject) throw new Error('Subject is required');
+
   const { data, error } = await supabase
     .from('rooms')
     .insert({
       creator_id: user.id,
-      title: input.topic,
-      subject: input.subject,
-      room_type: input.mode,
+      title,
+      subject,
+      description: input.description?.trim() || null,
+      room_type: input.roomType,                 // 'study' | 'collaboration' — matches CHECK
       is_public: input.visibility === 'public',
+      requires_approval: input.requiresApproval ?? false,
       max_participants: input.maxParticipants,
+      duration_minutes: input.durationMinutes,
       status: 'active',
     })
-    .select()
+    .select('id')
     .single();
-  if (error) throw error;
-  // room_participants is best-effort; swallow if table/column differs.
+  if (error) throw new Error(error.message);
+
+  // Add the creator as host participant.
   await supabase
     .from('room_participants')
     .insert({ room_id: data.id, user_id: user.id, role: 'host' })
     .then(() => {}, () => {});
+
   revalidatePath('/home');
-  return data;
+  revalidatePath('/rooms');
+  return data as { id: string };
 }
 
-export async function joinRoom(roomId: string) {
+export type JoinResult = 'joined' | 'already' | 'full' | 'pending' | 'error';
+
+export async function joinRoom(roomId: string): Promise<JoinResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not signed in');
-  await supabase
+  if (!user) return 'error';
+
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('creator_id, max_participants, requires_approval')
+    .eq('id', roomId)
+    .single();
+  if (!room) return 'error';
+
+  const { data: existing } = await supabase
     .from('room_participants')
-    .insert({ room_id: roomId, user_id: user.id, role: 'participant' })
-    .then(() => {}, () => {});
+    .select('user_id')
+    .eq('room_id', roomId);
+  const ids = (existing ?? []).map(p => p.user_id);
+  if (ids.includes(user.id)) return 'already';
+  if (room.creator_id === user.id) {
+    // creator should always be a participant; ensure the row exists
+    await supabase.from('room_participants').insert({ room_id: roomId, user_id: user.id, role: 'host' }).then(() => {}, () => {});
+    return 'joined';
+  }
+  if (ids.length >= room.max_participants) return 'full';
+
+  // requires_approval can't be queued in the current schema (no 'pending'
+  // participant state), so surface a pending status without inserting.
+  if (room.requires_approval) return 'pending';
+
+  const { error } = await supabase
+    .from('room_participants')
+    .insert({ room_id: roomId, user_id: user.id, role: 'participant' });
+  if (error) return 'error';
+  revalidatePath('/home');
+  return 'joined';
 }
 
 export async function leaveRoom(roomId: string) {
@@ -97,6 +247,41 @@ export async function leaveRoom(roomId: string) {
     .then(() => {}, () => {});
 }
 
+// ── Global search (rooms by title/subject + mentors by name) ──────
+export type SearchResults = {
+  rooms: { id: string; title: string; subject: string | null }[];
+  mentors: { id: string; full_name: string | null; handle: string | null }[];
+};
+
+export async function searchAll(query: string): Promise<SearchResults> {
+  const q = query.trim();
+  if (q.length < 2) return { rooms: [], mentors: [] };
+  const supabase = await createClient();
+  const like = `%${q}%`;
+
+  const [{ data: rooms }, { data: mentors }] = await Promise.all([
+    supabase
+      .from('rooms')
+      .select('id, title, subject')
+      .eq('is_public', true)
+      .eq('status', 'active')
+      .or(`title.ilike.${like},subject.ilike.${like}`)
+      .limit(6),
+    supabase
+      .from('profiles')
+      .select('id, full_name, handle')
+      .eq('is_mentor', true)
+      .or(`full_name.ilike.${like},handle.ilike.${like}`)
+      .limit(6),
+  ]);
+
+  return {
+    rooms: (rooms ?? []) as SearchResults['rooms'],
+    mentors: (mentors ?? []) as SearchResults['mentors'],
+  };
+}
+
+// ── Chat (private rooms) ──────────────────────────────────────────
 export async function listRoomMessages(roomId: string) {
   const supabase = await createClient();
   try {

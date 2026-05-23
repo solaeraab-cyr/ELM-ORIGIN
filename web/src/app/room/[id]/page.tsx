@@ -10,6 +10,8 @@ import { useRealtimePresence } from '@/hooks/useRealtimeSubscription';
 import { createClient } from '@/lib/supabase/client';
 import dynamic from 'next/dynamic';
 import { useVideoRoom } from '@/components/video/useVideoRoom';
+import { getRoomDetail, joinRoom, leaveRoom, type RoomDetail } from '@/app/actions/rooms';
+import { toast } from '@/lib/toast';
 
 const VideoRoom = dynamic(() => import('@/components/video/VideoRoom'), { ssr: false });
 
@@ -55,7 +57,11 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
   const [seconds, setSeconds] = useState(0);
   const [livePresence, setLivePresence] = useState<PresenceMeta[]>([]);
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
+  const [detail, setDetail] = useState<RoomDetail | null>(null);
   const video = useVideoRoom(roomId, me?.name ?? 'Anon');
+
+  // UUID rooms are real DB rooms; mentor-/other prefixes are ad-hoc sessions.
+  const isDbRoom = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(roomId);
 
   useEffect(() => {
     const supabase = createClient();
@@ -65,6 +71,23 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
       setMe({ id: user.id, name: (p?.full_name as string | null) || 'Anon' });
     });
   }, []);
+
+  // Load the real room and join it (best-effort) for DB-backed rooms.
+  useEffect(() => {
+    if (!isDbRoom) return;
+    let cancelled = false;
+    getRoomDetail(roomId).then(d => {
+      if (cancelled || !d) return;
+      setDetail(d);
+      if (!d.amIParticipant && !d.amICreator) {
+        joinRoom(roomId).then(res => {
+          if (res === 'full') toast('This room is full');
+          else if (res === 'pending') toast('Request to join sent — waiting for approval');
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [roomId, isDbRoom]);
 
   useRealtimePresence<PresenceMeta>({
     channelName: `room:${roomId}`,
@@ -83,11 +106,19 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
   }, []);
 
   const room = {
-    name: roomId.startsWith('mentor-') ? '1-on-1 Mentor Session' : 'Study Room',
-    subject: 'Study',
+    name: detail?.title ?? (roomId.startsWith('mentor-') ? '1-on-1 Mentor Session' : 'Study Room'),
+    subject: detail?.subject ?? 'Study',
     mode: 'discussion' as const,
     pomodoro: '25/5',
     type: isInterview ? 'interview' : 'public',
+  };
+  // Chat is private-rooms-only. Ad-hoc (non-DB) rooms have no chat.
+  const isPrivateRoom = detail ? !detail.is_public : false;
+  const roomTypeLabel = detail?.room_type === 'collaboration' ? '⚡ Collaboration' : '📚 Study';
+
+  const doLeave = () => {
+    if (isDbRoom) leaveRoom(roomId).catch(() => {});
+    router.push('/home');
   };
 
   const participants: Participant[] = [
@@ -97,6 +128,10 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
     { id: 'p4', name: 'Sara Kapoor', studyTime: '00:31:22', status: 'focused', hasPro: false },
     { id: 'p5', name: 'Vikram Joshi', studyTime: '02:11:45', status: 'away', hasPro: false },
   ];
+
+  const headCount = detail
+    ? Math.max(detail.participant_count, livePresence.length)
+    : Math.max(participants.length, livePresence.length);
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'var(--bg-base)', display: 'flex', flexDirection: 'column' }}>
@@ -108,7 +143,9 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, justifyContent: 'center' }}>
           <span style={{ fontFamily: 'Fraunces, serif', fontSize: 16, fontWeight: 700 }}>{room.name}</span>
           <span style={{ padding: '3px 10px', borderRadius: 999, background: 'rgba(79,70,229,0.10)', color: 'var(--brand-600)', fontSize: 11, fontWeight: 600 }}>{room.subject}</span>
-          <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: 'var(--text-tertiary)' }}>· {Math.max(participants.length, livePresence.length)} in room</span>
+          {detail && <span style={{ padding: '3px 10px', borderRadius: 999, background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', fontSize: 11, fontWeight: 600 }}>{roomTypeLabel}</span>}
+          {detail && !detail.is_public && <span style={{ padding: '3px 10px', borderRadius: 999, background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', fontSize: 11, fontWeight: 600 }}>🔒 Private</span>}
+          <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: 'var(--text-tertiary)' }}>· {headCount} in room</span>
         </div>
         <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 14, fontWeight: 600, color: 'var(--brand-600)' }}>{fmt(seconds)}</div>
       </div>
@@ -245,7 +282,9 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
         </div>
 
         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => setChatOpen(true)} style={{ height: 36, padding: '0 12px', borderRadius: 8, background: 'transparent', fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>💬 Chat</button>
+          {isPrivateRoom && (
+            <button onClick={() => setChatOpen(true)} style={{ height: 36, padding: '0 12px', borderRadius: 8, background: 'transparent', fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>💬 Chat</button>
+          )}
           <button onClick={() => setDrawer(true)} style={{ height: 36, padding: '0 12px', borderRadius: 8, background: 'transparent', fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>👥 Participants</button>
           <button onClick={() => setLeave(true)} style={{ height: 36, padding: '0 12px', borderRadius: 8, background: 'transparent', fontSize: 13, fontWeight: 500, color: '#ef4444' }}>→ Leave</button>
         </div>
@@ -260,7 +299,7 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
         />
       )}
 
-      {chatOpen && (
+      {chatOpen && isPrivateRoom && (
         <LiveRoomChat roomId={roomId} currentUserId={me?.id} onClose={() => setChatOpen(false)} />
       )}
 
@@ -299,7 +338,7 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => setLeave(false)} style={{ flex: 1, height: 44, padding: '0 18px', borderRadius: 999, background: 'var(--bg-hover)', border: '1px solid var(--border-default)', fontSize: 14, fontWeight: 500 }}>Stay in room</button>
-              <button onClick={() => router.push('/home')} style={{ flex: 1, height: 44, padding: '0 18px', borderRadius: 999, background: 'var(--gradient-brand)', color: '#fff', fontSize: 14, fontWeight: 600 }}>Leave & see summary</button>
+              <button onClick={doLeave} style={{ flex: 1, height: 44, padding: '0 18px', borderRadius: 999, background: 'var(--gradient-brand)', color: '#fff', fontSize: 14, fontWeight: 600 }}>Leave & see summary</button>
             </div>
           </div>
         </div>
