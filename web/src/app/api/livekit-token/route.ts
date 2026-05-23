@@ -25,7 +25,10 @@ export async function POST(req: Request) {
   }
 
   const at = new AccessToken(apiKey, apiSecret, {
-    identity: userName,
+    // Unique identity prevents collisions when two users share a display
+    // name (e.g. "You" / "Anon"); the human-readable name is shown in the UI.
+    identity: `${userName}__${Math.random().toString(36).slice(2, 10)}`,
+    name: userName,
     ttl: '4h',
   });
 

@@ -270,6 +270,9 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
           userName={me?.name ?? 'Anon'}
           token={video.token}
           onLeave={video.leaveVideo}
+          roomId={roomId}
+          userId={me?.id}
+          peerCount={livePresence.length}
         />
       )}
 
