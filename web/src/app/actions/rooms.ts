@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
+import { parseRoomCode } from '@/lib/roomCode';
 
 // Live `rooms` schema (real columns):
 //   id, creator_id, title, subject, description, duration_minutes,
@@ -27,12 +28,13 @@ export type RoomCard = {
   duration_minutes: number | null;
   status: string;
   created_at: string;
+  scheduled_for: string | null;
   participant_count: number;
   host: { full_name: string | null; handle: string | null; avatar_url: string | null } | null;
 };
 
 const ROOM_SELECT =
-  'id, creator_id, title, subject, description, room_type, is_public, requires_approval, max_participants, duration_minutes, status, created_at, host:profiles!creator_id(full_name, handle, avatar_url)';
+  'id, creator_id, title, subject, description, room_type, is_public, requires_approval, max_participants, duration_minutes, status, created_at, scheduled_for, host:profiles!creator_id(full_name, handle, avatar_url)';
 
 async function attachCounts(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -67,6 +69,54 @@ export async function listActiveRooms(): Promise<RoomCard[]> {
   } catch (err) {
     console.error('[listActiveRooms] threw', err);
     return [];
+  }
+}
+
+// Upcoming public rooms with a future scheduled_for time.
+export async function listScheduledRooms(): Promise<RoomCard[]> {
+  const supabase = await createClient();
+  try {
+    const { data, error } = await supabase
+      .from('rooms')
+      .select(ROOM_SELECT)
+      .eq('is_public', true)
+      .eq('status', 'active')
+      .not('scheduled_for', 'is', null)
+      .gt('scheduled_for', new Date().toISOString())
+      .order('scheduled_for', { ascending: true })
+      .limit(50);
+    if (error) {
+      console.error('[listScheduledRooms]', error.message);
+      return [];
+    }
+    return attachCounts(supabase, (data ?? []) as unknown as Omit<RoomCard, 'participant_count'>[]);
+  } catch (err) {
+    console.error('[listScheduledRooms] threw', err);
+    return [];
+  }
+}
+
+// Resolve a shared room code (e.g. "ELM-A3F8C2") to a room id. Matches the
+// code against the leading hex of active room ids. Returns null if no match.
+export async function findRoomByCode(code: string): Promise<{ id: string } | null> {
+  const prefix = parseRoomCode(code);
+  if (!prefix) return null;
+  const supabase = await createClient();
+  try {
+    const { data, error } = await supabase
+      .from('rooms')
+      .select('id')
+      .eq('status', 'active')
+      .limit(1000);
+    if (error) {
+      console.error('[findRoomByCode]', error.message);
+      return null;
+    }
+    const match = (data ?? []).find(r => (r.id as string).replace(/-/g, '').toLowerCase().startsWith(prefix));
+    return match ? { id: match.id as string } : null;
+  } catch (err) {
+    console.error('[findRoomByCode] threw', err);
+    return null;
   }
 }
 

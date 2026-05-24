@@ -12,6 +12,7 @@ import dynamic from 'next/dynamic';
 import { useVideoRoom } from '@/components/video/useVideoRoom';
 import { getRoomDetail, joinRoom, leaveRoom, type RoomDetail } from '@/app/actions/rooms';
 import { toast } from '@/lib/toast';
+import { roomCode, roomLink } from '@/lib/roomCode';
 
 const VideoRoom = dynamic(() => import('@/components/video/VideoRoom'), { ssr: false });
 
@@ -54,6 +55,7 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
   const [drawer, setDrawer] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [leave, setLeave] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [livePresence, setLivePresence] = useState<PresenceMeta[]>([]);
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
@@ -145,9 +147,23 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
           <span style={{ padding: '3px 10px', borderRadius: 999, background: 'rgba(79,70,229,0.10)', color: 'var(--brand-600)', fontSize: 11, fontWeight: 600 }}>{room.subject}</span>
           {detail && <span style={{ padding: '3px 10px', borderRadius: 999, background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', fontSize: 11, fontWeight: 600 }}>{roomTypeLabel}</span>}
           {detail && !detail.is_public && <span style={{ padding: '3px 10px', borderRadius: 999, background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', fontSize: 11, fontWeight: 600 }}>🔒 Private</span>}
-          <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: 'var(--text-tertiary)' }}>· {headCount} in room</span>
+          {isDbRoom && (
+            <button
+              onClick={() => { navigator.clipboard?.writeText(roomCode(roomId)).then(() => toast('Room code copied'), () => {}); }}
+              title="Click to copy room code"
+              style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, background: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', cursor: 'pointer' }}
+            >{roomCode(roomId)}</button>
+          )}
+          <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: 'var(--text-tertiary)' }}>· {detail ? `${headCount}/${detail.max_participants}` : headCount} in room</span>
         </div>
-        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 14, fontWeight: 600, color: 'var(--brand-600)' }}>{fmt(seconds)}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {isDbRoom && (
+            <button onClick={() => setInviteOpen(true)} style={{ height: 32, padding: '0 14px', borderRadius: 999, background: 'var(--bg-base)', border: '1px solid var(--border-default)', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="user" size={13} /> Invite
+            </button>
+          )}
+          <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 14, fontWeight: 600, color: 'var(--brand-600)' }}>{fmt(seconds)}</div>
+        </div>
       </div>
 
       {/* Body */}
@@ -312,7 +328,33 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
           roomId={roomId}
           userId={me?.id}
           peerCount={livePresence.length}
+          isPublic={detail ? detail.is_public : true}
         />
+      )}
+
+      {inviteOpen && (
+        <div onClick={() => setInviteOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 800, background: 'rgba(7,10,24,0.55)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: '100%', padding: 28, background: 'var(--bg-surface)', borderRadius: 20, border: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-xl)' }}>
+            <div style={{ fontFamily: 'Fraunces, serif', fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Invite to room</div>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18 }}>Share the code or link — anyone can join.</p>
+            {[
+              { label: 'Room code', value: roomCode(roomId) },
+              { label: 'Share link', value: roomLink(roomId) },
+            ].map(row => (
+              <div key={row.label} style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 6 }}>{row.label}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: 'var(--bg-base)', border: '1px solid var(--border-default)', borderRadius: 10 }}>
+                  <span style={{ flex: 1, minWidth: 0, fontFamily: 'JetBrains Mono, monospace', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.value}</span>
+                  <button onClick={() => { navigator.clipboard?.writeText(row.value).then(() => toast('Copied'), () => {}); }} style={{ flexShrink: 0, height: 30, padding: '0 12px', borderRadius: 8, background: 'var(--bg-hover)', border: '1px solid var(--border-default)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>📋 Copy</button>
+                </div>
+              </div>
+            ))}
+            <button
+              onClick={() => { const text = `Join my study room on ELM Origin! Code: ${roomCode(roomId)}  Link: ${roomLink(roomId)}`; window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer'); }}
+              style={{ width: '100%', height: 44, marginTop: 8, borderRadius: 999, background: 'var(--gradient-brand)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+            >Share via WhatsApp</button>
+          </div>
+        </div>
       )}
 
       {leave && (
