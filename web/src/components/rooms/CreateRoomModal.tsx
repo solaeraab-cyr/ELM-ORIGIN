@@ -5,8 +5,15 @@ import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/primitives';
 import { toast } from '@/lib/toast';
 import { createRoom, type RoomType } from '@/app/actions/rooms';
+import { roomCode, roomLink } from '@/lib/roomCode';
 
 interface Props { onClose: () => void }
+
+const SUBJECTS = [
+  'Mathematics', 'Physics', 'Chemistry', 'Biology', 'Computer Science',
+  'Economics', 'Engineering', 'Medicine', 'Law', 'Languages',
+  'History', 'Business', 'Other',
+];
 
 const inputStyle: React.CSSProperties = {
   width: '100%', minHeight: 40, padding: '10px 14px',
@@ -33,6 +40,7 @@ export default function CreateRoomModal({ onClose }: Props) {
   const [duration, setDuration] = useState(60);
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [created, setCreated] = useState<{ id: string } | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !submitting) onClose(); };
@@ -60,9 +68,13 @@ export default function CreateRoomModal({ onClose }: Props) {
       setSubmitting(false);
       return;
     }
-    toast('Room created — entering now…');
-    router.push(`/room/${result.id}`);
+    setCreated({ id: result.id });
+    setSubmitting(false);
   };
+
+  if (created) {
+    return <RoomCreatedModal roomId={created.id} onClose={onClose} onEnter={() => router.push(`/room/${created.id}`)} />;
+  }
 
   return (
     <div onClick={() => { if (!submitting) onClose(); }} style={{
@@ -92,7 +104,10 @@ export default function CreateRoomModal({ onClose }: Props) {
 
           <div>
             <label style={labelStyle}>Subject <span style={{ color: 'var(--danger-500)' }}>*</span></label>
-            <input value={subject} onChange={e => setSubject(e.target.value.slice(0, 60))} placeholder="Algorithms, Calculus, Organic Chemistry…" style={inputStyle} />
+            <select value={subject} onChange={e => setSubject(e.target.value)} style={{ ...inputStyle, height: 42, cursor: 'pointer' }}>
+              <option value="" disabled>Select a subject…</option>
+              {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
           </div>
 
           <div>
@@ -184,6 +199,75 @@ export default function CreateRoomModal({ onClose }: Props) {
           </button>
         </div>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } } @keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }`}</style>
+      </div>
+    </div>
+  );
+}
+
+function CopyRow({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      toast('Copy failed — select and copy manually');
+    }
+  };
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: 'var(--bg-base)', border: '1px solid var(--border-default)', borderRadius: 10 }}>
+        <span style={{ flex: 1, minWidth: 0, fontFamily: 'JetBrains Mono, monospace', fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
+        <button onClick={copy} style={{ flexShrink: 0, height: 30, padding: '0 12px', borderRadius: 8, background: copied ? 'var(--mint-500)' : 'var(--bg-hover)', color: copied ? '#fff' : 'var(--text-primary)', border: '1px solid var(--border-default)', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+          {copied ? <><Icon name="check" size={12} /> Copied</> : '📋 Copy'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RoomCreatedModal({ roomId, onClose, onEnter }: { roomId: string; onClose: () => void; onEnter: () => void }) {
+  const code = roomCode(roomId);
+  const link = roomLink(roomId);
+  const shareWhatsApp = () => {
+    const text = `Join my study room on ELM Origin! Code: ${code}  Link: ${link}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+  };
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, zIndex: 600,
+      background: 'rgba(7,10,24,0.55)', backdropFilter: 'blur(8px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: 480, maxWidth: '100%', background: 'var(--bg-surface)', borderRadius: 24,
+        border: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-xl)',
+        animation: 'modalIn 350ms var(--ease-out-expo)', padding: 28,
+      }}>
+        <div style={{ textAlign: 'center', marginBottom: 22 }}>
+          <div style={{ width: 56, height: 56, margin: '0 auto 12px', borderRadius: 999, background: 'rgba(16,185,129,0.12)', color: 'var(--mint-600)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="check" size={28} />
+          </div>
+          <div style={{ fontFamily: 'Fraunces, serif', fontSize: 24, fontWeight: 700 }}>Room created!</div>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>Share the code or link so others can join.</p>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <CopyRow label="Room code" value={code} />
+          <CopyRow label="Share link" value={link} />
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
+          <button onClick={shareWhatsApp} style={{ flex: 1, height: 48, borderRadius: 999, background: 'var(--bg-hover)', border: '1px solid var(--border-default)', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            Share via WhatsApp
+          </button>
+          <button onClick={onEnter} style={{ flex: 1, height: 48, borderRadius: 999, background: 'var(--gradient-brand)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            Enter Room <Icon name="chevronR" size={13} />
+          </button>
+        </div>
+        <style>{`@keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }`}</style>
       </div>
     </div>
   );

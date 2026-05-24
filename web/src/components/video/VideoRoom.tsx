@@ -35,6 +35,8 @@ interface VideoRoomProps {
   userId?: string;
   /** Approx. number of people already in the room (shown on pre-join). */
   peerCount?: number;
+  /** Public rooms have no chat (chat is private-rooms-only). */
+  isPublic?: boolean;
 }
 
 // ── Theme constants (Google-Meet style dark UI) ─────────────────────────────
@@ -544,8 +546,8 @@ function ParticipantsPanel({ participants, localId, onClose }: { participants: (
 // ════════════════════════════════════════════════════════════════════════════
 type PanelKind = 'notes' | 'chat' | 'people' | null;
 
-function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initialCam }: {
-  roomName: string; roomId?: string; userId?: string; onLeave: () => void; initialMic: boolean; initialCam: boolean;
+function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initialCam, chatEnabled }: {
+  roomName: string; roomId?: string; userId?: string; onLeave: () => void; initialMic: boolean; initialCam: boolean; chatEnabled: boolean;
 }) {
   const { localParticipant } = useLocalParticipant();
   const participants = useParticipants();
@@ -651,7 +653,7 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
 
         {/* Right side panel */}
         {panel === 'notes' && <NotesPanel roomKey={roomId || roomName} onClose={() => setPanel(null)} />}
-        {panel === 'chat' && roomId && (
+        {panel === 'chat' && roomId && chatEnabled && (
           <ChatPanel roomId={roomId} userId={userId} onClose={() => setPanel(null)} onSeen={() => { lastSeenCount.current = 0; }} />
         )}
         {panel === 'people' && (
@@ -687,7 +689,7 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
           <ControlButton icon={Icons.noise} label={`Noise cancellation: ${noiseCancel ? 'On' : 'Off'}`} active={noiseCancel} off={!noiseCancel} onClick={toggleNoiseCancel} />
           <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.12)', margin: '0 2px' }} />
           <ControlButton icon={Icons.notes} label="Notes" active={panel === 'notes'} onClick={() => openPanel('notes')} />
-          {roomId && <ControlButton icon={Icons.chat} label="Chat" active={panel === 'chat'} badge={panel === 'chat' ? 0 : unread} onClick={() => openPanel('chat')} />}
+          {roomId && chatEnabled && <ControlButton icon={Icons.chat} label="Chat" active={panel === 'chat'} badge={panel === 'chat' ? 0 : unread} onClick={() => openPanel('chat')} />}
           <ControlButton icon={Icons.people} label="Participants" active={panel === 'people'} onClick={() => openPanel('people')} />
           <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.12)', margin: '0 2px' }} />
           <ControlButton icon={Icons.hangup} label="Leave call" danger onClick={onLeave} />
@@ -695,7 +697,7 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
       </div>
 
       {/* Off-screen unread tracker for chat */}
-      {roomId && panel !== 'chat' && (
+      {roomId && chatEnabled && panel !== 'chat' && (
         <UnreadWatcher roomId={roomId} userId={userId} onIncrement={() => setUnread(n => n + 1)} />
       )}
     </div>
@@ -742,7 +744,7 @@ function VideoComingSoon({ onClose }: { onClose: () => void }) {
 // ════════════════════════════════════════════════════════════════════════════
 // MAIN EXPORT
 // ════════════════════════════════════════════════════════════════════════════
-export default function VideoRoom({ roomName, userName, token, onLeave, roomId, userId, peerCount }: VideoRoomProps) {
+export default function VideoRoom({ roomName, userName, token, onLeave, roomId, userId, peerCount, isPublic }: VideoRoomProps) {
   const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
 
   const [joined, setJoined] = useState(false);
@@ -786,6 +788,7 @@ export default function VideoRoom({ roomName, userName, token, onLeave, roomId, 
         onLeave={onLeave}
         initialMic={settings.micOn}
         initialCam={settings.camOn}
+        chatEnabled={!isPublic}
       />
     </LiveKitRoom>
   );
