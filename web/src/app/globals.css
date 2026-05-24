@@ -377,3 +377,13 @@ img, video, canvas, svg, iframe { max-width: 100%; }
     grid-template-columns: 1fr !important;
   }
 }
+
+/* Desktop + tablet (>= 769px): the sidebar is fixed at 232px, so the main
+   content must clear it. Mirrors the Tailwind `md:pl-[232px]` class but as an
+   unlayered rule, so the offset can't be lost to the `pl-0` utility or to a
+   gap in arbitrary-value generation. The <= 768px block above resets it to 0. */
+@media (min-width: 769px) {
+  .shell-main {
+    padding-left: 232px;
+  }
+}
