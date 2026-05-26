@@ -420,8 +420,8 @@ export default function InterviewManager({ currentUserId }: { currentUserId: str
       listAvailableInterviews(),
       getInterviewQuota(),
     ]);
-    setMine(m as InterviewRow[]);
-    setAvailable(a as InterviewRow[]);
+    setMine(m as unknown as InterviewRow[]);
+    setAvailable(a as unknown as InterviewRow[]);
     setQuota(q);
     setLoading(false);
   };

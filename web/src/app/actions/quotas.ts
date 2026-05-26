@@ -23,7 +23,7 @@ export async function getMyQuotaToday() {
   return inserted;
 }
 
-export async function incrementQuota(field: 'peer_interviews' | 'group_interviews' | 'collab_rooms' | 'friend_requests' | 'nova_messages') {
+export async function incrementQuota(field: 'peer_interviews_today' | 'group_interviews_today' | 'collab_rooms_created_today' | 'friends_sent_this_month') {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not signed in');

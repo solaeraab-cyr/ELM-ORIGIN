@@ -282,15 +282,15 @@ function PeerMatchingModal({ onCancel, onMatched }: { onCancel: () => void; onMa
   const [phase, setPhase] = useState<'searching' | 'found' | 'ready'>('searching');
   const [matched, setMatched] = useState<typeof PEER_POOL[0] | null>(null);
 
-  useState(() => {
+  useEffect(() => {
     const t = setInterval(() => setElapsed(e => e + 1), 1000);
-    setTimeout(() => {
+    const t1 = setTimeout(() => {
       setMatched(PEER_POOL.filter(p => p.online)[Math.floor(Math.random() * 4)]);
       setPhase('found');
     }, 4500);
-    setTimeout(() => setPhase('ready'), 6300);
-    return () => clearInterval(t);
-  });
+    const t2 = setTimeout(() => setPhase('ready'), 6300);
+    return () => { clearInterval(t); clearTimeout(t1); clearTimeout(t2); };
+  }, []);
 
   const phrases = [
     'Scanning 3,241 students online…',
