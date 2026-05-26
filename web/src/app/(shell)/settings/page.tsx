@@ -77,6 +77,7 @@ export default function SettingsPage() {
   const [deleteText, setDeleteText] = useState('');
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
 
   // User data from Supabase
   const [email, setEmail] = useState('');
@@ -349,14 +350,14 @@ export default function SettingsPage() {
                     <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>Disables animations and transitions</div>
                   </div>
                   <button
-                    onClick={() => setNotifs('session_reminders', !notifs.session_reminders)}
+                    onClick={() => setReduceMotion(v => !v)}
                     style={{
                       width: 42, height: 24, borderRadius: 999,
-                      background: 'var(--bg-subtle, var(--bg-hover))',
-                      position: 'relative', flexShrink: 0,
+                      background: reduceMotion ? 'var(--gradient-brand)' : 'var(--bg-subtle, var(--bg-hover))',
+                      position: 'relative', flexShrink: 0, transition: 'background 180ms',
                     }}
                   >
-                    <div style={{ position: 'absolute', top: 2, left: 2, width: 20, height: 20, borderRadius: 999, background: '#fff', boxShadow: 'var(--shadow-xs)' }} />
+                    <div style={{ position: 'absolute', top: 2, left: reduceMotion ? 20 : 2, width: 20, height: 20, borderRadius: 999, background: '#fff', boxShadow: 'var(--shadow-xs)', transition: 'left 180ms' }} />
                   </button>
                 </div>
               </div>

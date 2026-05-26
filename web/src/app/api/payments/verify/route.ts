@@ -36,21 +36,26 @@ export async function POST(req: Request) {
       ? `https://api.cashfree.com/pg/orders/${orderId}`
       : `https://sandbox.cashfree.com/pg/orders/${orderId}`;
 
-    const res = await fetch(baseUrl, {
-      headers: {
-        'x-api-version': '2023-08-01',
-        'x-client-id': appId,
-        'x-client-secret': secretKey,
-      },
-    });
+    try {
+      const res = await fetch(baseUrl, {
+        headers: {
+          'x-api-version': '2023-08-01',
+          'x-client-id': appId,
+          'x-client-secret': secretKey,
+        },
+      });
 
-    if (!res.ok) {
-      return NextResponse.json({ error: 'Could not verify payment' }, { status: 502 });
-    }
+      if (!res.ok) {
+        return NextResponse.json({ error: 'Could not verify payment' }, { status: 502 });
+      }
 
-    const order = await res.json();
-    if (order.order_status !== 'PAID') {
-      return NextResponse.json({ error: 'Payment not completed', status: order.order_status }, { status: 402 });
+      const order = await res.json();
+      if (order.order_status !== 'PAID') {
+        return NextResponse.json({ error: 'Payment not completed', status: order.order_status }, { status: 402 });
+      }
+    } catch (err) {
+      console.error('[verify] threw', err);
+      return NextResponse.json({ error: 'Payment provider unreachable' }, { status: 502 });
     }
   }
 
@@ -65,17 +70,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Failed to update plan' }, { status: 500 });
   }
 
-  // ── Write transaction record ───────────────────────────────────────────────
-  // Best-effort — don't fail the verify if the transactions table doesn't exist yet
+  // ── Write transaction record (best-effort) ──────────────────────────────────
+  // transactions columns: user_id, type, amount, currency, description, status,
+  // payment_method, created_at. status CHECK: pending|completed|failed|refunded.
   await supabase.from('transactions').insert({
     user_id: user.id,
-    order_id: orderId,
-    plan: planLabel,
+    type: 'payment_sent',
     amount,
     currency: 'INR',
-    status: 'paid',
-    is_mock: orderId.startsWith('mock_'),
-    created_at: new Date().toISOString(),
+    description: `${planLabel} plan upgrade`,
+    status: 'completed',
+    payment_method: orderId.startsWith('mock_') ? 'mock' : 'cashfree',
   }).then(({ error }) => {
     if (error) console.warn('[verify] transactions insert skipped:', error.message);
   });

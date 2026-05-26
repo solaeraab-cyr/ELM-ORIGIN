@@ -69,16 +69,16 @@ export async function togglePostInteraction(postId: string, type: 'like' | 'repo
     .select('post_id')
     .eq('post_id', postId)
     .eq('user_id', user.id)
-    .eq('type', type)
+    .eq('interaction_type', type)
     .maybeSingle();
 
   if (existing) {
-    await supabase.from('post_interactions').delete().eq('post_id', postId).eq('user_id', user.id).eq('type', type);
+    await supabase.from('post_interactions').delete().eq('post_id', postId).eq('user_id', user.id).eq('interaction_type', type);
     const { data: p } = await supabase.from('posts').select('like_count').eq('id', postId).single();
     await supabase.from('posts').update({ like_count: Math.max(0, (p?.like_count ?? 0) - 1) }).eq('id', postId);
     return false;
   }
-  await supabase.from('post_interactions').insert({ post_id: postId, user_id: user.id, type });
+  await supabase.from('post_interactions').insert({ post_id: postId, user_id: user.id, interaction_type: type });
   const { data: p } = await supabase.from('posts').select('like_count').eq('id', postId).single();
   await supabase.from('posts').update({ like_count: (p?.like_count ?? 0) + 1 }).eq('id', postId);
   return true;
@@ -91,13 +91,13 @@ export async function listMyInteractions(postIds: string[]) {
   try {
     const { data } = await supabase
       .from('post_interactions')
-      .select('post_id, type')
+      .select('post_id, interaction_type')
       .eq('user_id', user.id)
       .in('post_id', postIds);
     const map: Record<string, Set<string>> = {};
     for (const i of data ?? []) {
       map[i.post_id] = map[i.post_id] || new Set();
-      map[i.post_id].add(i.type);
+      map[i.post_id].add(i.interaction_type);
     }
     return map;
   } catch {

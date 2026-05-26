@@ -6,12 +6,12 @@ import { createClient } from '@/lib/supabase/client';
 
 type Transaction = {
   id: string;
-  order_id: string;
-  plan: string;
+  type: string;
   amount: number;
   currency: string;
+  description: string | null;
   status: string;
-  is_mock: boolean;
+  payment_method: string | null;
   created_at: string;
 };
 
@@ -22,7 +22,7 @@ function fmtDate(iso: string) {
 }
 
 function StatusBadge({ status, isMock }: { status: string; isMock: boolean }) {
-  const color = status === 'paid'
+  const color = (status === 'paid' || status === 'completed')
     ? { bg: 'rgba(16,185,129,0.10)', text: 'var(--mint-600, #059669)' }
     : { bg: 'rgba(245,158,11,0.10)', text: 'var(--amber-600, #d97706)' };
   return (
@@ -44,7 +44,7 @@ export default function InvoicesPage() {
       if (!user) { setLoading(false); return; }
       const { data, error: dbErr } = await supabase
         .from('transactions')
-        .select('id, order_id, plan, amount, currency, status, is_mock, created_at')
+        .select('id, type, amount, currency, description, status, payment_method, created_at')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
       if (dbErr) {
@@ -118,16 +118,16 @@ export default function InvoicesPage() {
               }}
             >
               <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>ELM Origin {tx.plan}</div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{tx.description || 'ELM Origin'}</div>
                 <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-tertiary)', marginTop: 2 }}>
-                  {tx.order_id}
+                  {tx.payment_method ?? tx.type}
                 </div>
               </div>
               <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{fmtDate(tx.created_at)}</div>
               <div style={{ fontFamily: 'Fraunces, serif', fontWeight: 700, fontSize: 15 }}>
                 {tx.currency === 'INR' ? '₹' : '$'}{tx.amount}
               </div>
-              <StatusBadge status={tx.status} isMock={tx.is_mock} />
+              <StatusBadge status={tx.status} isMock={tx.payment_method === 'mock'} />
             </div>
           ))}
         </div>

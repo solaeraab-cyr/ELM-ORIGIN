@@ -48,42 +48,47 @@ export async function POST(req: Request) {
     .eq('id', user.id)
     .single();
 
-  const res = await fetch(baseUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-version': '2023-08-01',
-      'x-client-id': appId,
-      'x-client-secret': secretKey,
-    },
-    body: JSON.stringify({
-      order_id: orderId,
-      order_amount: amount,
-      order_currency: 'INR',
-      customer_details: {
-        customer_id: user.id,
-        customer_email: profile?.email ?? user.email ?? '',
-        customer_name: profile?.full_name ?? 'User',
-        customer_phone: '9999999999',
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-version': '2023-08-01',
+        'x-client-id': appId,
+        'x-client-secret': secretKey,
       },
-      order_meta: {
-        return_url: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/pricing/checkout?plan=${plan}&order_id={order_id}&status={payment_status}`,
-      },
-    }),
-  });
+      body: JSON.stringify({
+        order_id: orderId,
+        order_amount: amount,
+        order_currency: 'INR',
+        customer_details: {
+          customer_id: user.id,
+          customer_email: profile?.email ?? user.email ?? '',
+          customer_name: profile?.full_name ?? 'User',
+          customer_phone: '9999999999',
+        },
+        order_meta: {
+          return_url: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/pricing/checkout?plan=${plan}&order_id={order_id}&status={payment_status}`,
+        },
+      }),
+    });
 
-  if (!res.ok) {
-    const err = await res.text();
-    console.error('[create-order] Cashfree error:', err);
-    return NextResponse.json({ error: 'Failed to create order' }, { status: 502 });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('[create-order] Cashfree error:', err);
+      return NextResponse.json({ error: 'Failed to create order' }, { status: 502 });
+    }
+
+    const order = await res.json();
+    return NextResponse.json({
+      orderId: order.order_id,
+      paymentSessionId: order.payment_session_id,
+      status: 'real',
+      plan,
+      amount,
+    });
+  } catch (err) {
+    console.error('[create-order] threw', err);
+    return NextResponse.json({ error: 'Payment provider unreachable' }, { status: 502 });
   }
-
-  const order = await res.json();
-  return NextResponse.json({
-    orderId: order.order_id,
-    paymentSessionId: order.payment_session_id,
-    status: 'real',
-    plan,
-    amount,
-  });
 }

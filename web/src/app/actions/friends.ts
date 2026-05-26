@@ -17,10 +17,10 @@ async function getMonthlyFriendRequestCount(
   firstDay.setDate(1);
   const { data } = await supabase
     .from('daily_quotas')
-    .select('friend_requests')
+    .select('friends_sent_this_month')
     .eq('user_id', userId)
     .gte('date', firstDay.toISOString().slice(0, 10));
-  return (data ?? []).reduce((sum, row) => sum + (row.friend_requests ?? 0), 0);
+  return (data ?? []).reduce((sum, row) => sum + (row.friends_sent_this_month ?? 0), 0);
 }
 
 export async function sendFriendRequest(receiverId: string) {
@@ -34,7 +34,7 @@ export async function sendFriendRequest(receiverId: string) {
     const { data: existing } = await supabase
       .from('friends')
       .select('id, status')
-      .or(`and(sender_id.eq.${user.id},receiver_id.eq.${receiverId}),and(sender_id.eq.${receiverId},receiver_id.eq.${user.id})`)
+      .or(`and(requester_id.eq.${user.id},receiver_id.eq.${receiverId}),and(requester_id.eq.${receiverId},receiver_id.eq.${user.id})`)
       .maybeSingle();
     if (existing) {
       if (existing.status === 'accepted') throw new Error('Already friends');
@@ -56,21 +56,21 @@ export async function sendFriendRequest(receiverId: string) {
 
     const { error } = await supabase
       .from('friends')
-      .insert({ sender_id: user.id, receiver_id: receiverId, status: 'pending' });
+      .insert({ requester_id: user.id, receiver_id: receiverId, status: 'pending' });
     if (error) throw error;
 
-    // Increment daily quota
+    // Increment monthly quota counter
     const today = new Date().toISOString().slice(0, 10);
     const { data: quotaRow } = await supabase
       .from('daily_quotas')
-      .select('friend_requests')
+      .select('friends_sent_this_month')
       .eq('user_id', user.id)
       .eq('date', today)
       .maybeSingle();
     if (quotaRow) {
-      await supabase.from('daily_quotas').update({ friend_requests: (quotaRow.friend_requests ?? 0) + 1 }).eq('user_id', user.id).eq('date', today);
+      await supabase.from('daily_quotas').update({ friends_sent_this_month: (quotaRow.friends_sent_this_month ?? 0) + 1 }).eq('user_id', user.id).eq('date', today);
     } else {
-      await supabase.from('daily_quotas').insert({ user_id: user.id, date: today, friend_requests: 1 });
+      await supabase.from('daily_quotas').insert({ user_id: user.id, date: today, friends_sent_this_month: 1 });
     }
 
     // Notify receiver
@@ -78,8 +78,8 @@ export async function sendFriendRequest(receiverId: string) {
       user_id: receiverId,
       type: 'friend_request',
       title: 'New friend request',
-      description: '',
-      data: { sender_id: user.id },
+      message: '',
+      data: { requester_id: user.id },
     });
 
     revalidatePath('/friends');
@@ -139,7 +139,7 @@ export async function removeFriend(friendRowId: string) {
       .from('friends')
       .delete()
       .eq('id', friendRowId)
-      .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`);
+      .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`);
     if (error) throw error;
 
     revalidatePath('/friends');
@@ -157,11 +157,11 @@ export async function listFriends() {
 
     const { data } = await supabase
       .from('friends')
-      .select('id, sender_id, receiver_id, created_at, sender:profiles!sender_id(id,full_name,handle,avatar_url,plan), receiver:profiles!receiver_id(id,full_name,handle,avatar_url,plan)')
-      .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+      .select('id, requester_id, receiver_id, created_at, sender:profiles!requester_id(id,full_name,handle,avatar_url,plan), receiver:profiles!receiver_id(id,full_name,handle,avatar_url,plan)')
+      .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`)
       .eq('status', 'accepted');
     return (data ?? []).map((row) => {
-      const friend = row.sender_id === user.id ? row.receiver : row.sender;
+      const friend = row.requester_id === user.id ? row.receiver : row.sender;
       return { id: row.id, friend: friend as unknown as { id: string; full_name: string | null; handle: string | null; avatar_url: string | null; plan: string }, since: row.created_at };
     });
   } catch {
@@ -177,7 +177,7 @@ export async function listPendingRequests() {
 
     const { data } = await supabase
       .from('friends')
-      .select('id, created_at, sender:profiles!sender_id(id,full_name,handle,avatar_url,plan)')
+      .select('id, created_at, sender:profiles!requester_id(id,full_name,handle,avatar_url,plan)')
       .eq('receiver_id', user.id)
       .eq('status', 'pending');
     return (data ?? []).map((row) => ({
@@ -199,7 +199,7 @@ export async function listSentRequests() {
     const { data } = await supabase
       .from('friends')
       .select('id, created_at, receiver:profiles!receiver_id(id,full_name,handle,avatar_url,plan)')
-      .eq('sender_id', user.id)
+      .eq('requester_id', user.id)
       .eq('status', 'pending');
     return (data ?? []).map((row) => ({
       id: row.id,
@@ -219,15 +219,14 @@ export async function checkFriendStatus(otherUserId: string): Promise<'none' | '
 
     const { data } = await supabase
       .from('friends')
-      .select('sender_id, status')
-      .or(`and(sender_id.eq.${user.id},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${user.id})`)
+      .select('requester_id, status')
+      .or(`and(requester_id.eq.${user.id},receiver_id.eq.${otherUserId}),and(requester_id.eq.${otherUserId},receiver_id.eq.${user.id})`)
       .maybeSingle();
 
     if (!data) return 'none';
     if (data.status === 'accepted') return 'accepted';
-    if (data.status === 'declined') return 'declined';
     if (data.status === 'pending') {
-      return data.sender_id === user.id ? 'pending_sent' : 'pending_received';
+      return data.requester_id === user.id ? 'pending_sent' : 'pending_received';
     }
     return 'none';
   } catch {
