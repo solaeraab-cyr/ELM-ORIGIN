@@ -172,8 +172,8 @@ function buildRoomOptions(opts: {
     },
     videoCaptureDefaults: {
       resolution: {
-        width: 1280,
-        height: 720,
+        width: 1920,
+        height: 1080,
         frameRate: 30,
         aspectRatio: 16 / 9,
       },
@@ -181,7 +181,7 @@ function buildRoomOptions(opts: {
     },
     publishDefaults: {
       videoCodec: 'vp8' as VideoCodec,
-      videoEncoding: { maxBitrate: 1_700_000, maxFramerate: 30 },
+      videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 },
       simulcast: true,
     },
   };
@@ -1291,9 +1291,9 @@ function VideoRoomInner({
 
   const sharing = screenTracks.length > 0;
 
-  // Responsive columns: 4 for desktop grid, fewer when not many participants.
-  const tileCount = pagedParticipants.length;
-  const cols = sharing ? 1 : tileCount <= 1 ? 1 : tileCount <= 2 ? 2 : tileCount <= 6 ? 3 : 4;
+  // Always 4 columns to match StudyStream-style dense grid.
+  // Your tile is one card in the grid, never fullscreen.
+  const cols = sharing ? 1 : 4;
 
   const openPanel = (kind: Exclude<PanelKind, null>) => {
     setPanel((prev) => (prev === kind ? null : kind));
@@ -1316,7 +1316,12 @@ function VideoRoomInner({
           from { transform: translateX(24px); opacity: 0 }
           to { transform: translateX(0); opacity: 1 }
         }
-        [data-lk-local-participant] video { transform: scaleX(1) !important; }
+        [data-lk-local-participant] video,
+        [data-lk-facing-mode="user"] video,
+        video[data-lk-local-participant],
+        .lk-participant-tile video,
+        .lk-video-track video,
+        video { transform: none !important; -webkit-transform: none !important; }
         [data-video-grid]::-webkit-scrollbar { width: 6px }
         [data-video-grid]::-webkit-scrollbar-track { background: transparent }
         [data-video-grid]::-webkit-scrollbar-thumb {
