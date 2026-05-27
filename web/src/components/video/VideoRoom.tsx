@@ -69,7 +69,8 @@ function buildRoomOptions(opts: {
   noiseSuppression: boolean;
 }): RoomOptions {
   return {
-    adaptiveStream: true,
+    // adaptiveStream OFF — we want full 1080p always, not downscaled based on tile size
+    adaptiveStream: false,
     dynacast: true,
     audioCaptureDefaults: {
       echoCancellation: true,
