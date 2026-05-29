@@ -589,8 +589,9 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
   const count = allParticipants.length;
   const sharing = screenTracks.length > 0;
 
-  // Google Meet adaptive grid: 1→centered, 2→side-by-side, 3-4→2×2, 5+→3-col
-  const cols = count <= 1 ? 1 : count <= 4 ? 2 : 3;
+  // Google Meet adaptive grid:
+  // 1→centered, 2→side-by-side, 3→1×3 row, 4→2×2, 5-9→3-col, 10+→4-col
+  const cols = count <= 1 ? 1 : count === 2 ? 2 : count === 3 ? 3 : count === 4 ? 2 : count <= 9 ? 3 : 4;
 
   const openPanel = (kind: Exclude<PanelKind, null>) => {
     setPanel(prev => (prev === kind ? null : kind));

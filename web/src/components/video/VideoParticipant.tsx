@@ -41,10 +41,14 @@ export default function VideoParticipant({ participant, isLocal, compact }: Vide
         pub.track.attach(el);
         setIsCameraOff(false);
       } else {
-        // Detach if no track
-        const tracks = el.srcObject instanceof MediaStream ? el.srcObject.getTracks() : [];
-        tracks.forEach(t => t.stop());
-        el.srcObject = null;
+        // Detach WITHOUT stopping the underlying track.
+        // LiveKit owns the track lifecycle — calling .stop() on a remote
+        // track would break it re-appearing when they re-enable their camera.
+        if (pub?.track) {
+          pub.track.detach(el);
+        } else {
+          el.srcObject = null;
+        }
         setIsCameraOff(true);
       }
     };
