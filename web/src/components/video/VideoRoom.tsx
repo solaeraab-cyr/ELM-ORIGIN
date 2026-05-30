@@ -182,7 +182,7 @@ function PreJoin({ roomName, userName, peerCount, onJoin, onCancel }: {
         <div style={{ flex: '1 1 460px', maxWidth: 560 }}>
           <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 16, overflow: 'hidden', background: 'linear-gradient(135deg,#1f2440,#12162e)', boxShadow: '0 16px 50px rgba(0,0,0,0.5)' }}>
             {camOn ? (
-              <video ref={videoRef} autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <video ref={videoRef} autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
             ) : (
               <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#9aa0b4' }}>
                 <div style={{ width: 84, height: 84, borderRadius: 999, background: 'var(--gradient-brand,linear-gradient(135deg,#1B2B8E,#3D52CC))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34, fontWeight: 700, color: '#fff', fontFamily: 'Fraunces, serif' }}>
@@ -602,7 +602,6 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: BG, display: 'flex', flexDirection: 'column' }}>
       <style>{`
         @keyframes lkPanelIn { from { transform: translateX(24px); opacity: 0 } to { transform: translateX(0); opacity: 1 } }
-        video { transform: none !important; -webkit-transform: none !important; }
       `}</style>
 
       {/* ── Room info bar (top) ────────────────────────────────── */}

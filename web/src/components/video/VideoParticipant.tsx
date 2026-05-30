@@ -115,7 +115,7 @@ export default function VideoParticipant({ participant, isLocal, compact }: Vide
           : '0 6px 22px rgba(0,0,0,0.35)',
         transition: 'border-color 200ms ease, box-shadow 200ms ease',
       }}>
-        {/* RAW video element — zero transforms, zero LiveKit CSS */}
+        {/* RAW video element. Mirror ONLY local self-view (Google Meet convention). */}
         <video
           ref={videoRef}
           autoPlay
@@ -124,8 +124,9 @@ export default function VideoParticipant({ participant, isLocal, compact }: Vide
           style={{
             position: 'absolute', inset: 0, width: '100%', height: '100%',
             objectFit: 'cover',
-            // ABSOLUTELY NO MIRROR. This is a raw element, nothing can override it.
-            transform: 'none',
+            // Local self-view is mirrored (feels natural, like Meet/Zoom).
+            // Remote participants are NOT mirrored (so text reads correctly).
+            transform: isLocal ? 'scaleX(-1)' : 'none',
             display: isCameraOff ? 'none' : 'block',
           }}
         />
