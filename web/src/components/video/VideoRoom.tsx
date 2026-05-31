@@ -20,6 +20,8 @@ import {
 } from 'livekit-client';
 // NOTE: We intentionally do NOT import '@livekit/components-styles'
 // because it force-mirrors local video. All styling is custom below.
+// Krisp = LiveKit Cloud enhanced AI noise cancellation (requires LiveKit Cloud).
+import { KrispNoiseFilter, isKrispNoiseFilterSupported } from '@livekit/krisp-noise-filter';
 import VideoParticipant from './VideoParticipant';
 import { listRoomMessages, sendRoomMessage } from '@/app/actions/rooms';
 import { loadRoomNote, saveRoomNote } from '@/app/actions/roomNotes';
@@ -88,6 +90,12 @@ function buildRoomOptions(opts: {
       videoCodec: 'vp8' as VideoCodec,
       videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 },
       simulcast: true,
+      // Higher-fidelity voice: 48 kbps Opus (vs ~24-32 default),
+      // RED = redundant encoding so audio survives packet loss (clarity on weak networks),
+      // DTX = stops sending during silence (saves bandwidth, no quality loss).
+      audioPreset: { maxBitrate: 48_000 },
+      red: true,
+      dtx: true,
     },
   };
 }
@@ -229,9 +237,9 @@ function PreJoin({ roomName, userName, peerCount, onJoin, onCancel }: {
 
           {/* Quality info badges */}
           <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-            <QualityBadge label="Video" value="1080p HD" />
-            <QualityBadge label="Audio" value="48 kHz" />
-            <QualityBadge label="Noise cancel" value="On" color="#34d399" />
+            <QualityBadge label="Video" value="HD" />
+            <QualityBadge label="Audio" value="48 kbps" />
+            <QualityBadge label="AI Noise" value="On" color="#34d399" />
           </div>
         </div>
 
@@ -554,6 +562,7 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
   const [panel, setPanel] = useState<PanelKind>(null);
   const [unread, setUnread] = useState(0);
   const lastSeenCount = useRef(0);
+  const krispRef = useRef<ReturnType<typeof KrispNoiseFilter> | null>(null);
 
   const toggleMic = useCallback(async () => {
     const next = !micEnabled;
@@ -572,14 +581,51 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
     try { await localParticipant.setScreenShareEnabled(next); setScreenShareEnabled(next); } catch {}
   }, [localParticipant, screenShareEnabled]);
 
+  // Apply or remove Krisp AI noise cancellation on the local mic track.
+  // Falls back to the browser's basic noiseSuppression if Krisp isn't supported.
+  const applyNoiseFilter = useCallback(async (enable: boolean) => {
+    const audioTrack = localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack as LocalAudioTrack | undefined;
+    if (!audioTrack) return;
+    try {
+      if (enable) {
+        if (isKrispNoiseFilterSupported()) {
+          if (!krispRef.current) krispRef.current = KrispNoiseFilter();
+          await audioTrack.setProcessor(krispRef.current);
+          return;
+        }
+        // Fallback: browser noise suppression
+        if ('restartTrack' in audioTrack) {
+          await audioTrack.restartTrack({ noiseSuppression: true, echoCancellation: true, autoGainControl: true });
+        }
+      } else {
+        try { await audioTrack.stopProcessor(); } catch {}
+        if ('restartTrack' in audioTrack) {
+          await audioTrack.restartTrack({ noiseSuppression: false, echoCancellation: true, autoGainControl: true });
+        }
+      }
+    } catch {
+      // If Krisp errors, degrade gracefully to browser NS
+      try {
+        if ('restartTrack' in audioTrack) {
+          await audioTrack.restartTrack({ noiseSuppression: enable, echoCancellation: true, autoGainControl: true });
+        }
+      } catch {}
+    }
+  }, [localParticipant]);
+
   const toggleNoiseCancel = useCallback(async () => {
     const next = !noiseCancel;
     setNoiseCancel(next);
-    const audioTrack = localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack as LocalAudioTrack | undefined;
-    if (audioTrack && 'restartTrack' in audioTrack) {
-      try { await audioTrack.restartTrack({ noiseSuppression: next, echoCancellation: true, autoGainControl: true }); } catch {}
-    }
-  }, [localParticipant, noiseCancel]);
+    await applyNoiseFilter(next);
+  }, [noiseCancel, applyNoiseFilter]);
+
+  // Turn Krisp on once the mic track is live (on join / when mic re-enabled).
+  useEffect(() => {
+    if (!micEnabled || !noiseCancel) return;
+    const t = setTimeout(() => applyNoiseFilter(true), 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [micEnabled]);
 
   const allParticipants: (LocalParticipant | RemoteParticipant)[] = useMemo(() => [
     localParticipant,
@@ -618,10 +664,10 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
           {/* Quality indicators */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', fontSize: 11, color: '#8b91a8' }}>
             <span style={{ color: noiseCancel ? '#34d399' : '#f87171', fontSize: 10 }}>●</span>
-            NC {noiseCancel ? 'On' : 'Off'}
+            AI Noise {noiseCancel ? 'On' : 'Off'}
           </div>
           <div style={{ padding: '4px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', fontSize: 11, color: '#8b91a8', fontFamily: 'JetBrains Mono, monospace' }}>
-            1080p
+            HD
           </div>
           <InviteButton />
         </div>
