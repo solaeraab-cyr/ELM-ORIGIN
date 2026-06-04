@@ -51,6 +51,7 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
   const [showGoal, setShowGoal] = useState(false);
   const [goal, setGoal] = useState('');
   const [showNotes, setShowNotes] = useState(false);
+  const [showPomodoro, setShowPomodoro] = useState(false);
   const [notes, setNotes] = useState('');
   const [drawer, setDrawer] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -168,7 +169,7 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
 
       {/* Body */}
       <div style={{ flex: 1, padding: 24, overflow: 'auto' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 20 }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'grid', gridTemplateColumns: showPomodoro ? 'minmax(0, 1fr) 280px' : 'minmax(0, 1fr)', gap: 20 }}>
           <div style={{
             background: 'var(--bg-surface)', borderRadius: 20, border: '1px solid var(--border-subtle)',
             padding: 32, minHeight: 360, display: 'flex', flexDirection: 'column',
@@ -195,18 +196,20 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
             </div>
           </div>
 
-          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 18 }}>
-            <div style={{ fontFamily: 'Fraunces, serif', fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Pomodoro</div>
-            <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 36, fontWeight: 600, color: 'var(--brand-600)', textAlign: 'center', padding: '14px 0' }}>
-              {fmt(Math.max(0, 25 * 60 - seconds))}
+          {showPomodoro && (
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 18 }}>
+              <div style={{ fontFamily: 'Fraunces, serif', fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Pomodoro</div>
+              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 36, fontWeight: 600, color: 'var(--brand-600)', textAlign: 'center', padding: '14px 0' }}>
+                {fmt(Math.max(0, 25 * 60 - seconds))}
+              </div>
+              <div style={{ height: 4, borderRadius: 999, background: 'var(--bg-hover)', overflow: 'hidden', marginBottom: 14 }}>
+                <div style={{ height: '100%', width: `${Math.min(100, (seconds / (25 * 60)) * 100)}%`, background: 'var(--gradient-brand)' }} />
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 14, textAlign: 'center' }}>Focus → 5 min break</div>
+              <div style={{ fontFamily: 'Fraunces, serif', fontSize: 13, fontWeight: 700, marginTop: 18, marginBottom: 8 }}>Now playing</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{ambient ?? 'No ambient sound'}</div>
             </div>
-            <div style={{ height: 4, borderRadius: 999, background: 'var(--bg-hover)', overflow: 'hidden', marginBottom: 14 }}>
-              <div style={{ height: '100%', width: `${Math.min(100, (seconds / (25 * 60)) * 100)}%`, background: 'var(--gradient-brand)' }} />
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 14, textAlign: 'center' }}>Focus → 5 min break</div>
-            <div style={{ fontFamily: 'Fraunces, serif', fontSize: 13, fontWeight: 700, marginTop: 18, marginBottom: 8 }}>Now playing</div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{ambient ?? 'No ambient sound'}</div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -269,6 +272,16 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
               </div>
             )}
           </div>
+          <button
+            onClick={() => setShowPomodoro(p => !p)}
+            title="Pomodoro timer"
+            style={{
+              height: 36, padding: '0 12px', borderRadius: 8, fontSize: 13, fontWeight: 500,
+              background: showPomodoro ? 'var(--bg-hover)' : 'transparent',
+              color: showPomodoro ? 'var(--text-primary)' : 'var(--text-secondary)',
+              border: `1px solid ${showPomodoro ? 'var(--border-default)' : 'transparent'}`,
+            }}
+          >⏱ Pomodoro</button>
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
