@@ -15,6 +15,7 @@ import { toast } from '@/lib/toast';
 import { roomCode, roomLink } from '@/lib/roomCode';
 
 const VideoRoom = dynamic(() => import('@/components/video/VideoRoom'), { ssr: false });
+const LiveBoard = dynamic(() => import('@/components/rooms/LiveBoard'), { ssr: false });
 
 const fmt = (s: number) => {
   const m = Math.floor(s / 60), sec = s % 60;
@@ -52,6 +53,7 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
   const [goal, setGoal] = useState('');
   const [showNotes, setShowNotes] = useState(false);
   const [showPomodoro, setShowPomodoro] = useState(false);
+  const [showLiveBoard, setShowLiveBoard] = useState(false);
   const [notes, setNotes] = useState('');
   const [drawer, setDrawer] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -168,7 +170,17 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
       </div>
 
       {/* Body */}
-      <div style={{ flex: 1, padding: 24, overflow: 'auto' }}>
+      <div style={{ flex: 1, padding: 24, overflow: 'auto', minHeight: 0 }}>
+        {showLiveBoard ? (
+          <div style={{ maxWidth: 1280, margin: '0 auto', height: '100%', minHeight: 480 }}>
+            <LiveBoard
+              roomId={roomId}
+              currentUserId={me?.id ?? 'anon'}
+              currentUserName={me?.name ?? 'You'}
+              participants={livePresence.map(lp => ({ user_id: lp.user_id, name: lp.name }))}
+            />
+          </div>
+        ) : (
         <div style={{ maxWidth: 1100, margin: '0 auto', display: 'grid', gridTemplateColumns: showPomodoro ? 'minmax(0, 1fr) 280px' : 'minmax(0, 1fr)', gap: 20 }}>
           <div style={{
             background: 'var(--bg-surface)', borderRadius: 20, border: '1px solid var(--border-subtle)',
@@ -211,6 +223,7 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Notes panel */}
@@ -282,6 +295,16 @@ function FocusRoom({ roomId, isInterview }: { roomId: string; isInterview: boole
               border: `1px solid ${showPomodoro ? 'var(--border-default)' : 'transparent'}`,
             }}
           >⏱ Pomodoro</button>
+          <button
+            onClick={() => setShowLiveBoard(v => !v)}
+            title="Live Board"
+            style={{
+              height: 36, padding: '0 12px', borderRadius: 8, fontSize: 13, fontWeight: 500,
+              background: showLiveBoard ? 'var(--bg-hover)' : 'transparent',
+              color: showLiveBoard ? 'var(--text-primary)' : 'var(--text-secondary)',
+              border: `1px solid ${showLiveBoard ? 'var(--border-default)' : 'transparent'}`,
+            }}
+          >✏️ Live Board</button>
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>

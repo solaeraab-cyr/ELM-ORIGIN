@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
     "@livekit/components-react": "^2.9.21",
     "@livekit/components-styles": "^1.2.0",
     "@livekit/krisp-noise-filter": "^0.3.4",

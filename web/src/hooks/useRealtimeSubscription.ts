@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type {
+  RealtimeChannel,
   RealtimePostgresChangesPayload,
   RealtimePresenceState,
 } from '@supabase/supabase-js';
@@ -83,4 +84,56 @@ export function useRealtimePresence<Meta extends Record<string, unknown> = Recor
       channel.untrack().then(() => supabase.removeChannel(channel));
     };
   }, [channelName, enabled]);
+}
+
+export interface BroadcastOpts<Payload = unknown> {
+  channelName: string;
+  event: string;
+  onMessage?: (payload: Payload) => void;
+  enabled?: boolean;
+}
+
+/**
+ * Send / receive ephemeral broadcast events on a Supabase Realtime channel.
+ * No DB writes — suitable for high-frequency state (e.g. whiteboard strokes,
+ * cursor pointers, marker holder). Returns a `send` function that ignores
+ * calls before the channel is subscribed.
+ */
+export function useRealtimeBroadcast<Payload = unknown>({
+  channelName, event, onMessage, enabled = true,
+}: BroadcastOpts<Payload>) {
+  const cbRef = useRef(onMessage);
+  cbRef.current = onMessage;
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const readyRef = useRef(false);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const supabase = createClient();
+    const channel = supabase.channel(channelName, { config: { broadcast: { self: false } } });
+    channelRef.current = channel;
+    readyRef.current = false;
+
+    channel.on('broadcast', { event }, (msg) => {
+      cbRef.current?.(msg.payload as Payload);
+    });
+
+    channel.subscribe(status => {
+      if (status === 'SUBSCRIBED') readyRef.current = true;
+    });
+
+    return () => {
+      readyRef.current = false;
+      channelRef.current = null;
+      supabase.removeChannel(channel);
+    };
+  }, [channelName, event, enabled]);
+
+  const send = useCallback((payload: Payload) => {
+    const ch = channelRef.current;
+    if (!ch || !readyRef.current) return;
+    ch.send({ type: 'broadcast', event, payload: payload as Record<string, unknown> });
+  }, [event]);
+
+  return { send };
 }
