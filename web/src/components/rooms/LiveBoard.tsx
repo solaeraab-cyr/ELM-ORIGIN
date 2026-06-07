@@ -19,6 +19,8 @@ type ScenePayload = { senderId: string; elements: unknown[] };
 type PointerPayload = { senderId: string; name: string; color: string; x: number; y: number; button?: 'down' | 'up' };
 type MarkerPayload = { mode: MarkerHolder };
 type ClearPayload = { senderId: string };
+type SyncRequestPayload = { requestId: string; requesterId: string };
+type SyncResponsePayload = { requestId: string; elements: unknown[] };
 
 interface Props {
   roomId: string;
@@ -143,6 +145,14 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
   // remote collaborators -> Excalidraw appState.collaborators (Map keyed by socket-like id)
   const collabsRef = useRef<Map<string, { pointer: { x: number; y: number }; button: 'down' | 'up'; username: string; color: { background: string; stroke: string }; id: string }>>(new Map());
 
+  // Loop guard: when applying a remote scene (regular delta OR initial sync),
+  // Excalidraw's onChange will fire — we must NOT rebroadcast it as if we drew.
+  const applyingRemoteRef = useRef(false);
+  // Initial-sync handshake state.
+  const hasSyncedRef = useRef(false);
+  const pendingRequestIdRef = useRef<string | null>(null);
+  const recentlyAnsweredRef = useRef<Set<string>>(new Set());
+
   // Width tracking — fall back to a horizontal strip when narrow or when there are
   // too many participants to ring nicely.
   const [w, setW] = useState<number>(() => (typeof window !== 'undefined' ? window.innerWidth : 1024));
@@ -167,7 +177,11 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
     channelName: channel, event: 'scene',
     onMessage: (msg) => {
       if (!api || msg.senderId === currentUserId) return;
+      applyingRemoteRef.current = true;
       api.updateScene({ elements: msg.elements });
+      // Reset on the next tick so Excalidraw's onChange (which fires after
+      // updateScene) doesn't echo this back as our own edit.
+      setTimeout(() => { applyingRemoteRef.current = false; }, 0);
     },
   });
 
@@ -196,6 +210,75 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
     onMessage: () => { api?.updateScene({ elements: [] }); },
   });
 
+  // ── Initial-sync handshake ────────────────────────────────────────────────
+  // A user opening the board emits 'sync-request' (with a unique requestId).
+  // Exactly one existing peer should answer with the current scene:
+  //   • the marker holder if there is one
+  //   • else, when the marker is 'all', the participant with the lowest
+  //     user_id (deterministic tiebreak — we don't track join timestamps,
+  //     so this is our stand-in for "longest in the room")
+  // Small random delay (60-140 ms) debounces if multiple peers somehow
+  // qualify; recentlyAnsweredRef de-dupes per requestId.
+  const syncResponseBroadcast = useRealtimeBroadcast<SyncResponsePayload>({
+    channelName: channel, event: 'sync-response',
+    onMessage: (msg) => {
+      if (!api) return;
+      if (!pendingRequestIdRef.current || msg.requestId !== pendingRequestIdRef.current) return;
+      pendingRequestIdRef.current = null;
+      hasSyncedRef.current = true;
+      applyingRemoteRef.current = true;
+      api.updateScene({ elements: msg.elements });
+      setTimeout(() => { applyingRemoteRef.current = false; }, 0);
+    },
+  });
+
+  const syncRequestBroadcast = useRealtimeBroadcast<SyncRequestPayload>({
+    channelName: channel, event: 'sync-request',
+    onMessage: (msg) => {
+      if (!api || msg.requesterId === currentUserId) return;
+      if (recentlyAnsweredRef.current.has(msg.requestId)) return;
+
+      const iAmMarkerHolder = marker === currentUserId;
+      let iAmLeader = false;
+      if (marker === 'all') {
+        const ids = Array.from(new Set([...participants.map(p => p.user_id), currentUserId]));
+        ids.sort();
+        iAmLeader = ids[0] === currentUserId;
+      }
+      if (!iAmMarkerHolder && !iAmLeader) return;
+
+      recentlyAnsweredRef.current.add(msg.requestId);
+      // Free the entry after a while so the Set can't grow unbounded.
+      setTimeout(() => recentlyAnsweredRef.current.delete(msg.requestId), 10_000);
+
+      const delay = 60 + Math.floor(Math.random() * 80);
+      setTimeout(() => {
+        const elements = api.getSceneElements();
+        syncResponseBroadcast.send({ requestId: msg.requestId, elements: [...elements] });
+      }, delay);
+    },
+  });
+
+  // Send the initial sync-request once the Excalidraw API is mounted.
+  // Retry a few times because the broadcast channel may still be subscribing
+  // when we first try to send.
+  useEffect(() => {
+    if (!api || hasSyncedRef.current) return;
+    const id = `req_${Math.random().toString(36).slice(2, 10)}_${Date.now()}`;
+    pendingRequestIdRef.current = id;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      if (hasSyncedRef.current) return;
+      if (attempts >= 4) { pendingRequestIdRef.current = null; return; }
+      attempts++;
+      syncRequestBroadcast.send({ requestId: id, requesterId: currentUserId });
+      timer = setTimeout(tick, 800);
+    };
+    timer = setTimeout(tick, 200);
+    return () => { clearTimeout(timer); };
+  }, [api, syncRequestBroadcast, currentUserId]);
+
   // ── Local handlers ──────────────────────────────────────────────────────────
   const sendScene = useThrottle((elements: readonly unknown[]) => {
     sceneBroadcast.send({ senderId: currentUserId, elements: elements as unknown[] });
@@ -209,6 +292,7 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
   }, 80);
 
   const handleChange = useCallback((elements: readonly unknown[]) => {
+    if (applyingRemoteRef.current) return; // skip echo of a remote scene we just applied
     if (!canDraw) return; // viewers don't broadcast
     sendScene(elements);
   }, [canDraw, sendScene]);
