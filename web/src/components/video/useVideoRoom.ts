@@ -9,7 +9,7 @@ export interface VideoRoomState {
   error: string | null;
 }
 
-export function useVideoRoom(roomName: string, userName: string) {
+export function useVideoRoom(roomName: string, userName: string, userId?: string) {
   const [state, setState] = useState<VideoRoomState>({
     open: false,
     token: '',
@@ -29,7 +29,9 @@ export function useVideoRoom(roomName: string, userName: string) {
       const res = await fetch('/api/livekit-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomName, userName }),
+        // userId becomes the LiveKit identity so chat ownership + LiveBoard
+        // marker handoff key off the same profile id.
+        body: JSON.stringify({ roomName, userName, userId }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -44,7 +46,7 @@ export function useVideoRoom(roomName: string, userName: string) {
         token: '',
       }));
     }
-  }, [roomName, userName]);
+  }, [roomName, userName, userId]);
 
   const leaveVideo = useCallback(() => {
     setState({ open: false, token: '', loading: false, error: null });

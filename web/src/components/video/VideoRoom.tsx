@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
   LiveKitRoom,
   useLocalParticipant,
@@ -26,6 +27,11 @@ import VideoParticipant from './VideoParticipant';
 import { listRoomMessages, sendRoomMessage } from '@/app/actions/rooms';
 import { loadRoomNote, saveRoomNote } from '@/app/actions/roomNotes';
 import { useRealtimeTable } from '@/hooks/useRealtimeSubscription';
+import { roomCode, roomLink } from '@/lib/roomCode';
+
+// LiveBoard is browser-only (Excalidraw) and only mounts when the user opens
+// the panel — heavy bundle, so lazy-loaded.
+const LiveBoard = dynamic(() => import('@/components/rooms/LiveBoard'), { ssr: false });
 
 interface VideoRoomProps {
   roomName: string;
@@ -36,6 +42,12 @@ interface VideoRoomProps {
   userId?: string;
   peerCount?: number;
   isPublic?: boolean;
+  /** Real room title to show in the top header (falls back to roomName). */
+  roomTitle?: string;
+  /** Subject pill in the top header. */
+  roomSubject?: string | null;
+  /** 'study' | 'collaboration' — drives the room-type badge. */
+  roomType?: string;
 }
 
 // ── Theme ───────────────────────────────────────────────────────────────────
@@ -62,6 +74,11 @@ const Icons = {
   send:     <Svg size={18}><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></Svg>,
   link:     <Svg><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></Svg>,
   check:    <Svg size={16}><path d="M20 6L9 17l-5-5"/></Svg>,
+  timer:    <Svg><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6M12 6V2"/></Svg>,
+  board:    <Svg><path d="M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM7 22l5-3 5 3"/></Svg>,
+  target:   <Svg><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></Svg>,
+  music:    <Svg><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></Svg>,
+  more:     <Svg><circle cx="12" cy="12" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></Svg>,
 };
 
 // ── LiveKit room options ────────────────────────────────────────────────────
@@ -114,7 +131,9 @@ function PreJoin({ roomName, userName, peerCount, onJoin, onCancel }: {
   const rafRef = useRef<number | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
 
-  const [camOn, setCamOn] = useState(true);
+  // Camera defaults OFF (focus-friendly co-working). Mic stays on so the
+  // pre-join meter still shows level and audio is the default presence signal.
+  const [camOn, setCamOn] = useState(false);
   const [micOn, setMicOn] = useState(true);
   const [cams, setCams] = useState<MediaDeviceInfo[]>([]);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
@@ -545,11 +564,223 @@ function ParticipantsPanel({ participants, localId, onClose }: { participants: (
 // ════════════════════════════════════════════════════════════════════════════
 // IN-CALL UI  —  Google Meet adaptive layout
 // ════════════════════════════════════════════════════════════════════════════
-type PanelKind = 'notes' | 'chat' | 'people' | null;
+type PanelKind = 'notes' | 'chat' | 'people' | 'pomodoro' | 'goal' | 'ambient' | 'liveboard' | null;
 
-function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initialCam, chatEnabled }: {
+// ── Migrated study tools (Pomodoro / Goal / Ambient) ──────────────────────
+// All three lived inline in FocusRoom and now run as dark side panels here.
+// State (seconds, goal text, ambient choice) lives in VideoRoomInner.
+
+function PomodoroPanel({ seconds, onClose }: { seconds: number; onClose: () => void }) {
+  const remaining = Math.max(0, 25 * 60 - seconds);
+  const pct = Math.min(100, (seconds / (25 * 60)) * 100);
+  return (
+    <PanelShell title="Pomodoro" onClose={onClose}>
+      <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14, color: '#e8ecff' }}>
+        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 44, fontWeight: 700, color: '#93a3ff', textAlign: 'center', padding: '14px 0' }}>
+          {String(Math.floor(remaining / 60)).padStart(2, '0')}:{String(remaining % 60).padStart(2, '0')}
+        </div>
+        <div style={{ height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${pct}%`, background: 'var(--gradient-brand, linear-gradient(135deg,#1B2B8E,#3D52CC))' }} />
+        </div>
+        <div style={{ fontSize: 12, color: '#8b91a8', textAlign: 'center' }}>Focus → 5 min break</div>
+        <div style={{ fontFamily: 'Fraunces, serif', fontSize: 13, fontWeight: 700, marginTop: 6 }}>This session</div>
+        <div style={{ fontSize: 12, color: '#b6bbcd' }}>
+          Pomodoros completed: <strong style={{ color: '#e8ecff' }}>{Math.floor(seconds / (25 * 60))}</strong>
+        </div>
+      </div>
+    </PanelShell>
+  );
+}
+
+function GoalPanel({ goal, setGoal, onClose }: { goal: string; setGoal: (g: string) => void; onClose: () => void }) {
+  return (
+    <PanelShell title="Today’s goal" onClose={onClose}>
+      <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12, color: '#e8ecff' }}>
+        <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: '#8b91a8', textTransform: 'uppercase' }}>What will you finish?</label>
+        <input
+          autoFocus
+          value={goal}
+          onChange={e => setGoal(e.target.value)}
+          placeholder="e.g. Complete chapter 4 problems"
+          style={{
+            width: '100%', height: 40, padding: '0 12px', borderRadius: 10,
+            background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+            color: '#fff', fontSize: 13, outline: 'none',
+          }}
+        />
+        {goal && (
+          <div style={{ marginTop: 8, padding: 14, borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ fontSize: 11, color: '#8b91a8', marginBottom: 4 }}>Today</div>
+            <div style={{ fontFamily: 'Fraunces, serif', fontSize: 18, fontWeight: 600 }}>{goal}</div>
+          </div>
+        )}
+      </div>
+    </PanelShell>
+  );
+}
+
+const AMBIENT_OPTIONS = [
+  { e: '☕', l: 'Cafe' }, { e: '🌧', l: 'Rain' }, { e: '🌿', l: 'Forest' },
+  { e: '🎹', l: 'Piano' }, { e: '🎵', l: 'Lo-fi' }, { e: '✕', l: 'Off' },
+];
+
+function AmbientPanel({ ambient, setAmbient, onClose }: { ambient: string | null; setAmbient: (a: string | null) => void; onClose: () => void }) {
+  return (
+    <PanelShell title="Ambient sound" onClose={onClose}>
+      <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12, color: '#e8ecff' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+          {AMBIENT_OPTIONS.map(a => {
+            const sel = a.l === 'Off' ? ambient === null : ambient === a.l;
+            return (
+              <button
+                key={a.l}
+                onClick={() => setAmbient(a.l === 'Off' ? null : a.l)}
+                style={{
+                  height: 64, borderRadius: 12, display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', gap: 4,
+                  background: sel ? 'rgba(61,82,204,0.25)' : 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${sel ? 'rgba(61,82,204,0.55)' : 'rgba(255,255,255,0.08)'}`,
+                  color: sel ? '#fff' : '#b6bbcd', cursor: 'pointer', transition: 'all 150ms',
+                }}
+              >
+                <span style={{ fontSize: 22 }}>{a.e}</span>
+                <span style={{ fontSize: 11, fontWeight: 600 }}>{a.l}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ marginTop: 6, fontSize: 12, color: '#8b91a8' }}>
+          Now playing: <strong style={{ color: '#e8ecff' }}>{ambient ?? 'Silence'}</strong>
+        </div>
+      </div>
+    </PanelShell>
+  );
+}
+
+// ── Header: room title + subject pill + room-type badge + code chip + timer ─
+
+function RoomHeader({ roomId, roomTitle, roomName, roomSubject, roomType, isPublic, count, noiseCancel, seconds }: {
+  roomId?: string; roomTitle?: string; roomName: string; roomSubject?: string | null; roomType?: string;
+  isPublic?: boolean; count: number; noiseCancel: boolean; seconds: number;
+}) {
+  const [copied, setCopied] = useState(false);
+  const code = roomId ? roomCode(roomId) : null;
+  const link = roomId ? roomLink(roomId) : null;
+  const isCollab = roomType === 'collaboration';
+
+  const copy = async () => {
+    if (!code) return;
+    try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch {}
+  };
+  const shareInvite = async () => {
+    if (!link) return;
+    try { await navigator.clipboard.writeText(link); } catch {}
+  };
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+      padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
+        <span style={{ color: '#e8ecff', fontSize: 14, fontWeight: 600, fontFamily: 'Fraunces, serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 360 }}>
+          {roomTitle || roomName}
+        </span>
+        {roomSubject && (
+          <span style={{ padding: '3px 9px', borderRadius: 999, background: 'rgba(61,82,204,0.18)', color: '#b8c4f4', fontSize: 11, fontWeight: 600 }}>
+            {roomSubject}
+          </span>
+        )}
+        {roomType && (
+          <span style={{ padding: '3px 9px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', color: '#b6bbcd', fontSize: 11, fontWeight: 600 }}>
+            {isCollab ? '⚡ Collaboration' : '📚 Study'}
+          </span>
+        )}
+        {roomId && isPublic === false && (
+          <span style={{ padding: '3px 9px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', color: '#b6bbcd', fontSize: 11, fontWeight: 600 }}>🔒 Private</span>
+        )}
+        {code && (
+          <button onClick={copy} title="Copy room code" style={{
+            padding: '3px 10px', borderRadius: 999, background: copied ? 'rgba(52,211,153,0.18)' : 'rgba(255,255,255,0.06)',
+            border: `1px solid ${copied ? 'rgba(52,211,153,0.4)' : 'rgba(255,255,255,0.12)'}`,
+            color: copied ? '#34d399' : '#b6bbcd', fontSize: 11, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace', cursor: 'pointer',
+          }}>{copied ? 'Copied' : code}</button>
+        )}
+        <span style={{ color: '#8b91a8', fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>
+          · {count} {count === 1 ? 'person' : 'people'}
+        </span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ padding: '4px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', fontSize: 11, color: '#b6bbcd', fontFamily: 'JetBrains Mono, monospace' }}>
+          {String(Math.floor(seconds / 60)).padStart(2, '0')}:{String(seconds % 60).padStart(2, '0')}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', fontSize: 11, color: '#8b91a8' }}>
+          <span style={{ color: noiseCancel ? '#34d399' : '#f87171', fontSize: 10 }}>●</span>
+          AI Noise {noiseCancel ? 'On' : 'Off'}
+        </div>
+        <div style={{ padding: '4px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', fontSize: 11, color: '#8b91a8', fontFamily: 'JetBrains Mono, monospace' }}>HD</div>
+        {link ? (
+          <button onClick={shareInvite} title="Copy invite link" style={{
+            height: 40, padding: '0 16px', borderRadius: 999, display: 'flex', alignItems: 'center', gap: 7,
+            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: '#e8ecff',
+            fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+          }}>{Icons.link} Invite</button>
+        ) : (
+          <InviteButton />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── More menu (Goal + Ambient) ────────────────────────────────────────────
+
+function MoreMenu({ onOpenGoal, onOpenAmbient, panel }: { onOpenGoal: () => void; onOpenAmbient: () => void; panel: PanelKind }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+  const moreActive = panel === 'goal' || panel === 'ambient';
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <ControlButton icon={Icons.more} label="More" active={open || moreActive} onClick={() => setOpen(o => !o)} />
+      {open && (
+        <div style={{
+          position: 'absolute', bottom: 'calc(100% + 8px)', right: 0, minWidth: 180,
+          background: PANEL_BG, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12,
+          boxShadow: '0 10px 30px rgba(0,0,0,0.45)', padding: 6, zIndex: 30,
+        }}>
+          <button onClick={() => { setOpen(false); onOpenGoal(); }} style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+            background: panel === 'goal' ? 'rgba(61,82,204,0.25)' : 'transparent',
+            color: '#e8ecff', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+          }}>
+            <span style={{ width: 18, height: 18, display: 'inline-flex' }}>{Icons.target}</span>
+            Today’s goal
+          </button>
+          <button onClick={() => { setOpen(false); onOpenAmbient(); }} style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+            background: panel === 'ambient' ? 'rgba(61,82,204,0.25)' : 'transparent',
+            color: '#e8ecff', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+          }}>
+            <span style={{ width: 18, height: 18, display: 'inline-flex' }}>{Icons.music}</span>
+            Ambient sound
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initialCam, chatEnabled, roomTitle, roomSubject, roomType }: {
   roomName: string; roomId?: string; userId?: string; onLeave: () => void;
   initialMic: boolean; initialCam: boolean; chatEnabled: boolean;
+  roomTitle?: string; roomSubject?: string | null; roomType?: string;
 }) {
   const { localParticipant } = useLocalParticipant();
   const participants = useParticipants();
@@ -563,6 +794,16 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
   const [unread, setUnread] = useState(0);
   const lastSeenCount = useRef(0);
   const krispRef = useRef<ReturnType<typeof KrispNoiseFilter> | null>(null);
+
+  // Migrated FocusRoom state.
+  const [seconds, setSeconds] = useState(0);
+  const [goal, setGoal] = useState('');
+  const [ambient, setAmbient] = useState<string | null>(null);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  useEffect(() => {
+    const t = setInterval(() => setSeconds(s => s + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   const toggleMic = useCallback(async () => {
     const next = !micEnabled;
@@ -650,33 +891,31 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
         @keyframes lkPanelIn { from { transform: translateX(24px); opacity: 0 } to { transform: translateX(0); opacity: 1 } }
       `}</style>
 
-      {/* ── Room info bar (top) ────────────────────────────────── */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-        padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ color: '#e8ecff', fontSize: 14, fontWeight: 600, fontFamily: 'Fraunces, serif' }}>{roomName}</span>
-          <span style={{ color: '#8b91a8', fontSize: 12 }}>·</span>
-          <span style={{ color: '#8b91a8', fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>{count} {count === 1 ? 'person' : 'people'}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Quality indicators */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', fontSize: 11, color: '#8b91a8' }}>
-            <span style={{ color: noiseCancel ? '#34d399' : '#f87171', fontSize: 10 }}>●</span>
-            AI Noise {noiseCancel ? 'On' : 'Off'}
-          </div>
-          <div style={{ padding: '4px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', fontSize: 11, color: '#8b91a8', fontFamily: 'JetBrains Mono, monospace' }}>
-            HD
-          </div>
-          <InviteButton />
-        </div>
-      </div>
+      <RoomHeader
+        roomId={roomId}
+        roomTitle={roomTitle}
+        roomName={roomName}
+        roomSubject={roomSubject}
+        roomType={roomType}
+        isPublic={!chatEnabled}
+        count={count}
+        noiseCancel={noiseCancel}
+        seconds={seconds}
+      />
 
       {/* ── Stage + panel ──────────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', padding: 16, gap: 12, overflow: 'hidden' }}>
-          {sharing ? (
+          {panel === 'liveboard' && roomId ? (
+            <div style={{ flex: 1, minHeight: 0, borderRadius: 14, overflow: 'hidden', background: PANEL_BG, border: '1px solid rgba(255,255,255,0.06)' }}>
+              <LiveBoard
+                roomId={roomId}
+                currentUserId={localParticipant.identity}
+                currentUserName={localParticipant.name || userId || 'You'}
+                participants={allParticipants.map(p => ({ user_id: p.identity, name: p.name || p.identity.split('__')[0] || 'Guest' }))}
+              />
+            </div>
+          ) : sharing ? (
             <div style={{ flex: 1, display: 'flex', gap: 12, minHeight: 0 }}>
               {/* Screen share — 75% */}
               <div style={{ flex: '0 0 75%', borderRadius: 14, overflow: 'hidden', background: '#000', minWidth: 0 }}>
@@ -717,6 +956,15 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
         {panel === 'people' && (
           <ParticipantsPanel participants={allParticipants} localId={localParticipant.identity} onClose={() => setPanel(null)} />
         )}
+        {panel === 'pomodoro' && (
+          <PomodoroPanel seconds={seconds} onClose={() => setPanel(null)} />
+        )}
+        {panel === 'goal' && (
+          <GoalPanel goal={goal} setGoal={setGoal} onClose={() => setPanel(null)} />
+        )}
+        {panel === 'ambient' && (
+          <AmbientPanel ambient={ambient} setAmbient={setAmbient} onClose={() => setPanel(null)} />
+        )}
       </div>
 
       {/* Hidden audio */}
@@ -731,25 +979,88 @@ function VideoRoomInner({ roomName, roomId, userId, onLeave, initialMic, initial
       })}
 
       {/* ── Floating controls bar (bottom center) ─────────────── */}
+      {/* Three groups: [media] | [tools] | [leave]. Goal & Ambient live under
+          More to keep the bar uncluttered on narrow screens. */}
       <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 18, paddingTop: 4 }}>
         <div data-video-controls style={{
-          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', borderRadius: 18,
+          display: 'flex', alignItems: 'center', gap: 14, padding: '10px 18px', borderRadius: 18,
           background: BAR_BG, backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
           boxShadow: '0 8px 30px rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.08)',
-          maxWidth: 'calc(100vw - 24px)',
+          maxWidth: 'calc(100vw - 24px)', flexWrap: 'wrap',
         }}>
-          <ControlButton icon={micEnabled ? Icons.mic : Icons.micOff} label={micEnabled ? 'Mute' : 'Unmute'} off={!micEnabled} onClick={toggleMic} />
-          <ControlButton icon={cameraEnabled ? Icons.cam : Icons.camOff} label={cameraEnabled ? 'Turn off camera' : 'Turn on camera'} off={!cameraEnabled} onClick={toggleCamera} />
-          <ControlButton icon={Icons.screen} label={screenShareEnabled ? 'Stop sharing' : 'Present screen'} active={screenShareEnabled} onClick={toggleScreenShare} />
-          <ControlButton icon={Icons.noise} label={`Noise cancellation: ${noiseCancel ? 'On' : 'Off'}`} active={noiseCancel} onClick={toggleNoiseCancel} />
-          <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.12)', margin: '0 2px' }} />
-          <ControlButton icon={Icons.notes} label="Notes" active={panel === 'notes'} onClick={() => openPanel('notes')} />
-          {roomId && chatEnabled && <ControlButton icon={Icons.chat} label="Chat" active={panel === 'chat'} badge={panel === 'chat' ? 0 : unread} onClick={() => openPanel('chat')} />}
-          <ControlButton icon={Icons.people} label="Participants" active={panel === 'people'} onClick={() => openPanel('people')} />
-          <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.12)', margin: '0 2px' }} />
-          <ControlButton icon={Icons.hangup} label="Leave call" danger onClick={onLeave} />
+          {/* Media controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ControlButton icon={micEnabled ? Icons.mic : Icons.micOff} label={micEnabled ? 'Mute' : 'Unmute'} off={!micEnabled} onClick={toggleMic} />
+            <ControlButton icon={cameraEnabled ? Icons.cam : Icons.camOff} label={cameraEnabled ? 'Turn off camera' : 'Turn on camera'} off={!cameraEnabled} onClick={toggleCamera} />
+            <ControlButton icon={Icons.screen} label={screenShareEnabled ? 'Stop sharing' : 'Present screen'} active={screenShareEnabled} onClick={toggleScreenShare} />
+            <ControlButton icon={Icons.noise} label={`Noise cancellation: ${noiseCancel ? 'On' : 'Off'}`} active={noiseCancel} onClick={toggleNoiseCancel} />
+          </div>
+
+          <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.12)' }} />
+
+          {/* Study + collab tools */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ControlButton icon={Icons.timer} label="Pomodoro" active={panel === 'pomodoro'} onClick={() => openPanel('pomodoro')} />
+            {roomId && <ControlButton icon={Icons.board} label="Live Board" active={panel === 'liveboard'} onClick={() => openPanel('liveboard')} />}
+            <ControlButton icon={Icons.notes} label="Notes" active={panel === 'notes'} onClick={() => openPanel('notes')} />
+            {roomId && chatEnabled && <ControlButton icon={Icons.chat} label="Chat" active={panel === 'chat'} badge={panel === 'chat' ? 0 : unread} onClick={() => openPanel('chat')} />}
+            <ControlButton icon={Icons.people} label="Participants" active={panel === 'people'} onClick={() => openPanel('people')} />
+            <MoreMenu onOpenGoal={() => openPanel('goal')} onOpenAmbient={() => openPanel('ambient')} panel={panel} />
+          </div>
+
+          <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.12)' }} />
+
+          {/* Leave */}
+          <ControlButton icon={Icons.hangup} label="Leave call" danger onClick={() => setConfirmLeave(true)} />
         </div>
       </div>
+
+      {/* ── Leave confirmation w/ session stats ──────────────── */}
+      {confirmLeave && (
+        <div onClick={() => setConfirmLeave(false)} style={{
+          position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(7,10,24,0.6)',
+          backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: 460, maxWidth: '100%', padding: 28, background: PANEL_BG, color: '#e8ecff',
+            borderRadius: 20, border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 14px 40px rgba(0,0,0,0.55)',
+          }}>
+            <div style={{ fontFamily: 'Fraunces, serif', fontStyle: 'italic', fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Leave this session?</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, padding: 14, background: 'rgba(255,255,255,0.04)', borderRadius: 12, marginBottom: 18 }}>
+              <div>
+                <div style={{ fontSize: 10, color: '#8b91a8' }}>Focused</div>
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 18, fontWeight: 700 }}>
+                  {String(Math.floor(seconds / 60)).padStart(2, '0')}:{String(seconds % 60).padStart(2, '0')}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: '#8b91a8' }}>Pomodoros</div>
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 18, fontWeight: 700 }}>
+                  {Math.floor(seconds / (25 * 60))}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: '#8b91a8' }}>XP earned</div>
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 18, fontWeight: 700, color: '#6ee7b7' }}>
+                  +{Math.floor(seconds / 30)}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setConfirmLeave(false)} style={{
+                flex: 1, height: 44, padding: '0 18px', borderRadius: 999,
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+                color: '#e8ecff', fontSize: 14, fontWeight: 500, cursor: 'pointer',
+              }}>Stay in room</button>
+              <button onClick={onLeave} style={{
+                flex: 1, height: 44, padding: '0 18px', borderRadius: 999,
+                background: 'var(--gradient-brand, linear-gradient(135deg,#1B2B8E,#3D52CC))',
+                color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', border: 'none',
+              }}>Leave & see summary</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Unread watcher */}
       {roomId && chatEnabled && panel !== 'chat' && (
@@ -791,11 +1102,11 @@ function VideoComingSoon({ onClose }: { onClose: () => void }) {
 // ════════════════════════════════════════════════════════════════════════════
 // MAIN EXPORT
 // ════════════════════════════════════════════════════════════════════════════
-export default function VideoRoom({ roomName, userName, token, onLeave, roomId, userId, peerCount, isPublic }: VideoRoomProps) {
+export default function VideoRoom({ roomName, userName, token, onLeave, roomId, userId, peerCount, isPublic, roomTitle, roomSubject, roomType }: VideoRoomProps) {
   const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
 
   const [joined, setJoined] = useState(false);
-  const [settings, setSettings] = useState<{ camOn: boolean; micOn: boolean; videoDeviceId?: string; audioDeviceId?: string }>({ camOn: true, micOn: true });
+  const [settings, setSettings] = useState<{ camOn: boolean; micOn: boolean; videoDeviceId?: string; audioDeviceId?: string }>({ camOn: false, micOn: true });
 
   const roomOptions = useMemo(
     () => buildRoomOptions({ videoDeviceId: settings.videoDeviceId, audioDeviceId: settings.audioDeviceId, noiseSuppression: true }),
@@ -813,7 +1124,8 @@ export default function VideoRoom({ roomName, userName, token, onLeave, roomId, 
     <LiveKitRoom video={settings.camOn} audio={settings.micOn} token={token}
       serverUrl={livekitUrl} options={roomOptions} onDisconnected={onLeave} style={{ height: '100%' }}>
       <VideoRoomInner roomName={roomName} roomId={roomId} userId={userId} onLeave={onLeave}
-        initialMic={settings.micOn} initialCam={settings.camOn} chatEnabled={!isPublic} />
+        initialMic={settings.micOn} initialCam={settings.camOn} chatEnabled={!isPublic}
+        roomTitle={roomTitle} roomSubject={roomSubject} roomType={roomType} />
     </LiveKitRoom>
   );
 }
