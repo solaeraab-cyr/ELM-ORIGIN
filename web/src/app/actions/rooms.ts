@@ -29,12 +29,15 @@ export type RoomCard = {
   status: string;
   created_at: string;
   scheduled_for: string | null;
+  /** Optional free-text format tag for collaboration/interview rooms
+   *  (e.g. "HR / Behavioral", "Technical Coding"). Captured at create time. */
+  interview_format: string | null;
   participant_count: number;
   host: { full_name: string | null; handle: string | null; avatar_url: string | null } | null;
 };
 
 const ROOM_SELECT =
-  'id, creator_id, title, subject, description, room_type, is_public, requires_approval, max_participants, duration_minutes, status, created_at, scheduled_for, host:profiles!creator_id(full_name, handle, avatar_url)';
+  'id, creator_id, title, subject, description, room_type, is_public, requires_approval, max_participants, duration_minutes, status, created_at, scheduled_for, interview_format, host:profiles!creator_id(full_name, handle, avatar_url)';
 
 async function attachCounts(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -204,29 +207,31 @@ export type CreateRoomResult =
 
 export async function createRoom(input: {
   title: string;
-  subject: string;
+  subject?: string;
   description?: string;
   roomType: RoomType;
   visibility: 'public' | 'private';
   maxParticipants: number;
   durationMinutes: number;
   requiresApproval?: boolean;
+  /** Optional metadata for collaboration rooms — what kind of interview
+   *  / format the room is for. Free text; not gated by a CHECK. */
+  interviewFormat?: string | null;
 }): Promise<CreateRoomResult> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: 'Not signed in' };
 
   const title = input.title.trim();
-  const subject = input.subject.trim();
+  const subject = (input.subject ?? '').trim();
   if (!title) return { ok: false, error: 'Title is required' };
-  if (!subject) return { ok: false, error: 'Subject is required' };
 
   const { data, error } = await supabase
     .from('rooms')
     .insert({
       creator_id: user.id,
       title,
-      subject,
+      subject: subject || null,
       description: input.description?.trim() || null,
       room_type: input.roomType,                 // 'study' | 'collaboration' — matches CHECK
       is_public: input.visibility === 'public',
@@ -234,6 +239,11 @@ export async function createRoom(input: {
       max_participants: input.maxParticipants,
       duration_minutes: input.durationMinutes,
       status: 'active',
+      // Only persist interview_format on collaboration rooms; ignore otherwise.
+      interview_format:
+        input.roomType === 'collaboration' && input.interviewFormat
+          ? input.interviewFormat
+          : null,
     })
     .select('id')
     .single();

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/primitives';
 import { toast } from '@/lib/toast';
@@ -9,10 +9,92 @@ import { roomCode, roomLink } from '@/lib/roomCode';
 
 interface Props { onClose: () => void }
 
-const SUBJECTS = [
-  'Mathematics', 'Physics', 'Chemistry', 'Biology', 'Computer Science',
-  'Economics', 'Engineering', 'Medicine', 'Law', 'Languages',
-  'History', 'Business', 'Other',
+// ── Subject taxonomy ─────────────────────────────────────────────────────
+// Grouped for <optgroup>. Subject is OPTIONAL on a room.
+const SUBJECT_GROUPS: { label: string; items: string[] }[] = [
+  { label: 'Academic Subjects', items: ['Mathematics', 'Physics', 'Chemistry', 'Biology', 'Computer Science', 'Economics', 'Engineering', 'Medicine', 'Law', 'Languages', 'History', 'Business'] },
+  { label: 'Engineering Entrance Exams', items: ['JEE Main', 'JEE Advanced', 'BITSAT', 'EAMCET', 'KCET', 'MHT-CET', 'WBJEE', 'COMEDK', 'VITEEE', 'SRMJEEE', 'KIITEE'] },
+  { label: 'Medical Entrance Exams', items: ['NEET-UG', 'NEET-PG', 'AIIMS / INI-CET', 'FMGE', 'NExT', 'AIAPGET (AYUSH)', 'AIPVT (Vet)'] },
+  { label: 'Civil Services & Govt (Central)', items: ['UPSC CSE', 'UPSC IFS', 'UPSC IES / ESE', 'UPSC CMS', 'UPSC CAPF', 'UPSC NDA', 'UPSC CDS'] },
+  { label: 'State Civil Services (PSC)', items: ['APPSC (Andhra)', 'TSPSC (Telangana)', 'MPSC (Maharashtra)', 'KPSC (Karnataka)', 'TNPSC (Tamil Nadu)', 'UPPSC', 'BPSC (Bihar)', 'RPSC (Rajasthan)', 'WBPSC', 'HPSC (Haryana)', 'PPSC (Punjab)', 'JPSC (Jharkhand)', 'Other State PSC'] },
+  { label: 'Management / MBA', items: ['CAT', 'XAT', 'MAT', 'SNAP', 'CMAT', 'NMAT', 'IIFT', 'MICAT', 'TISS-NET', 'IBSAT', 'IPMAT'] },
+  { label: 'Banking & Finance Govt', items: ['SBI PO', 'SBI Clerk', 'IBPS PO', 'IBPS Clerk', 'IBPS SO', 'RBI Grade B', 'NABARD', 'SIDBI', 'LIC AAO'] },
+  { label: 'SSC (Staff Selection)', items: ['SSC CGL', 'SSC CHSL', 'SSC MTS', 'SSC GD', 'SSC JE', 'SSC Stenographer', 'SSC CPO'] },
+  { label: 'Defense', items: ['NDA', 'CDS', 'AFCAT', 'INET (Indian Navy)', 'TES (Tech Entry)', 'Agniveer', 'SSB Interview'] },
+  { label: 'Railways (RRB)', items: ['RRB NTPC', 'RRB ALP', 'RRB JE', 'RRB Group D', 'RRB Paramedical'] },
+  { label: 'Teaching / Academia', items: ['CTET', 'State TET', 'UGC NET', 'CSIR NET', 'KVS', 'NVS', 'DSSSB Teacher'] },
+  { label: 'Law', items: ['CLAT', 'AILET', 'LSAT-India', 'MH-CET Law', 'AIBE'] },
+  { label: 'Design & Architecture', items: ['NID DAT', 'NIFT', 'UCEED', 'CEED', 'NATA', 'JEE B.Arch'] },
+  { label: 'Engineering PG', items: ['GATE', 'IIT JAM', 'GPAT'] },
+  { label: 'Commerce / Finance Certs', items: ['CA Foundation', 'CA Inter', 'CA Final', 'CMA', 'CS', 'ACCA', 'CFA L1', 'CFA L2', 'CFA L3', 'FRM'] },
+  { label: 'International Study Abroad', items: ['SAT', 'ACT', 'GRE', 'GMAT', 'LSAT', 'MCAT', 'A-Levels', 'AP Exams'] },
+  { label: 'English Proficiency', items: ['IELTS', 'TOEFL', 'PTE Academic', 'Duolingo English Test', 'Cambridge CAE/CPE'] },
+  { label: 'Medical Abroad', items: ['USMLE Step 1', 'USMLE Step 2', 'USMLE Step 3', 'PLAB (UK)', 'AMC (Australia)', 'MCCQE (Canada)'] },
+  { label: 'IT / Tech Certifications', items: ['AWS SAA', 'AWS SAP', 'AWS Developer', 'Azure AZ-104', 'Azure AZ-305', 'GCP Cloud', 'Cisco CCNA', 'Cisco CCNP', 'CISSP', 'CompTIA Security+', 'Kubernetes CKA/CKAD'] },
+  { label: 'Project Mgmt & Quality', items: ['PMP', 'PRINCE2', 'Lean Six Sigma Green Belt', 'Lean Six Sigma Black Belt'] },
+  { label: 'School-Level', items: ['Class 10 Boards', 'Class 12 Boards', 'NTSE', 'Olympiads (Math/Physics/Chem/Bio/CS)', 'INSPIRE / KVPY', 'NMMS'] },
+  { label: 'Other', items: ['Other'] },
+];
+
+// Pure-JS title→subject auto-suggest. Longest keyword wins; case-insensitive
+// substring match. Only used to default-select when the user hasn't picked
+// a subject manually.
+const SUBJECT_KEYWORDS_RAW: { key: string; subject: string }[] = [
+  { key: 'JEE Advanced', subject: 'JEE Advanced' },
+  { key: 'NEET PG', subject: 'NEET-PG' },
+  { key: 'NEET-PG', subject: 'NEET-PG' },
+  { key: 'JEE Main', subject: 'JEE Main' },
+  { key: 'Civil Services', subject: 'UPSC CSE' },
+  { key: 'SSC CGL', subject: 'SSC CGL' },
+  { key: 'CA Final', subject: 'CA Final' },
+  { key: 'JEE', subject: 'JEE Main' },
+  { key: 'NEET', subject: 'NEET-UG' },
+  { key: 'EAMCET', subject: 'EAMCET' },
+  { key: 'KCET', subject: 'KCET' },
+  { key: 'MHCET', subject: 'MHT-CET' },
+  { key: 'MHT', subject: 'MHT-CET' },
+  { key: 'UPSC', subject: 'UPSC CSE' },
+  { key: 'APPSC', subject: 'APPSC (Andhra)' },
+  { key: 'TSPSC', subject: 'TSPSC (Telangana)' },
+  { key: 'GATE', subject: 'GATE' },
+  { key: 'CLAT', subject: 'CLAT' },
+  { key: 'GMAT', subject: 'GMAT' },
+  { key: 'GRE', subject: 'GRE' },
+  { key: 'IELTS', subject: 'IELTS' },
+  { key: 'TOEFL', subject: 'TOEFL' },
+  { key: 'SBI', subject: 'SBI PO' },
+  { key: 'IBPS', subject: 'IBPS PO' },
+  { key: 'CGL', subject: 'SSC CGL' },
+  { key: 'NDA', subject: 'NDA' },
+  { key: 'CDS', subject: 'CDS' },
+  { key: 'CFA', subject: 'CFA L1' },
+  { key: 'USMLE', subject: 'USMLE Step 1' },
+  { key: 'AWS', subject: 'AWS SAA' },
+  // 'CAT' is intentionally last among the short keys so longer matches
+  // like 'EAMCET'/'KCET'/'MHCET' (which all contain "CAT" as a substring)
+  // don't get mis-routed. Sort by length DESC handles this — we keep it
+  // explicit here for readability.
+  { key: 'CAT', subject: 'CAT' },
+];
+
+const SUBJECT_KEYWORDS = [...SUBJECT_KEYWORDS_RAW].sort((a, b) => b.key.length - a.key.length);
+
+function suggestSubject(title: string): string | null {
+  const t = title.toLowerCase();
+  if (!t) return null;
+  for (const { key, subject } of SUBJECT_KEYWORDS) {
+    if (t.includes(key.toLowerCase())) return subject;
+  }
+  return null;
+}
+
+// ── Interview Format options (collaboration rooms only) ─────────────────
+const INTERVIEW_FORMATS = [
+  'HR / Behavioral', 'Technical Coding', 'System Design', 'Case Study (Consulting)',
+  'Finance Technical (IB / Equity)', 'Product Management', 'Data Science / ML',
+  'Sales Role-play', 'Portfolio Review', 'Whiteboard / Design Challenge',
+  'Group Discussion (GD)', 'Aptitude Test', 'UPSC Personality Test',
+  'SSB (Defense) Interview', 'Bank PI / GD', 'General Mock Interview',
 ];
 
 const inputStyle: React.CSSProperties = {
@@ -33,8 +115,12 @@ export default function CreateRoomModal({ onClose }: Props) {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [subject, setSubject] = useState('');
+  // True once the user has explicitly chosen a subject — stops the title-based
+  // auto-suggest from overwriting a deliberate selection.
+  const [subjectTouched, setSubjectTouched] = useState(false);
   const [description, setDescription] = useState('');
   const [roomType, setRoomType] = useState<RoomType>('study');
+  const [interviewFormat, setInterviewFormat] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
   const [maxP, setMaxP] = useState(10);
   const [duration, setDuration] = useState(60);
@@ -48,20 +134,29 @@ export default function CreateRoomModal({ onClose }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, submitting]);
 
-  const canCreate = title.trim().length > 0 && subject.trim().length > 0 && !submitting;
+  // Auto-suggest subject from title keywords until the user picks one manually.
+  const suggested = useMemo(() => suggestSubject(title), [title]);
+  useEffect(() => {
+    if (subjectTouched) return;
+    if (suggested && suggested !== subject) setSubject(suggested);
+  }, [suggested, subjectTouched, subject]);
+
+  // Subject is optional now. Only title is required.
+  const canCreate = title.trim().length > 0 && !submitting;
 
   const create = async () => {
     if (!canCreate) return;
     setSubmitting(true);
     const result = await createRoom({
       title,
-      subject,
+      subject: subject || undefined,
       description,
       roomType,
       visibility,
       maxParticipants: maxP,
       durationMinutes: duration,
       requiresApproval: visibility === 'private' ? requiresApproval : false,
+      interviewFormat: roomType === 'collaboration' && interviewFormat ? interviewFormat : null,
     });
     if (!result.ok) {
       toast(result.error);
@@ -103,11 +198,24 @@ export default function CreateRoomModal({ onClose }: Props) {
           </div>
 
           <div>
-            <label style={labelStyle}>Subject <span style={{ color: 'var(--danger-500)' }}>*</span></label>
-            <select value={subject} onChange={e => setSubject(e.target.value)} style={{ ...inputStyle, height: 42, cursor: 'pointer' }}>
-              <option value="" disabled>Select a subject…</option>
-              {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+            <label style={labelStyle}>Subject <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+            <select
+              value={subject}
+              onChange={e => { setSubject(e.target.value); setSubjectTouched(true); }}
+              style={{ ...inputStyle, height: 42, cursor: 'pointer' }}
+            >
+              <option value="">No subject</option>
+              {SUBJECT_GROUPS.map(g => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.items.map(s => <option key={s} value={s}>{s}</option>)}
+                </optgroup>
+              ))}
             </select>
+            {!subjectTouched && suggested && (
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
+                Suggested from title — pick another to override
+              </div>
+            )}
           </div>
 
           <div>
@@ -134,6 +242,16 @@ export default function CreateRoomModal({ onClose }: Props) {
               })}
             </div>
           </div>
+
+          {roomType === 'collaboration' && (
+            <div>
+              <label style={labelStyle}>Interview Format <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+              <select value={interviewFormat} onChange={e => setInterviewFormat(e.target.value)} style={{ ...inputStyle, height: 42, cursor: 'pointer' }}>
+                <option value="">(none / not an interview)</option>
+                {INTERVIEW_FORMATS.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 16 }}>
             <div style={{ flex: 1 }}>

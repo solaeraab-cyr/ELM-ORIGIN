@@ -68,8 +68,13 @@ export default function RoomsClient({ publicRooms, myRooms, scheduledRooms }: Pr
   const filteredPublic = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return publicRooms;
+    // Matches title, subject, or interview_format (collab rooms only).
+    // TODO: add dedicated dropdown filters for Subject and Interview Format
+    // once we have UI space — the data is already on RoomCard.
     return publicRooms.filter(r =>
-      r.title.toLowerCase().includes(q) || (r.subject ?? '').toLowerCase().includes(q));
+      r.title.toLowerCase().includes(q)
+      || (r.subject ?? '').toLowerCase().includes(q)
+      || (r.interview_format ?? '').toLowerCase().includes(q));
   }, [publicRooms, query]);
 
   const tabs: { id: Tab; label: string; count: number }[] = [
@@ -121,7 +126,7 @@ export default function RoomsClient({ publicRooms, myRooms, scheduledRooms }: Pr
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 36, padding: '0 12px', borderRadius: 999, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}>
               <Icon name="search" size={14} />
-              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter by title or subject…" style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: 'var(--text-primary)', width: 180 }} />
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter by title, subject or format…" style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: 'var(--text-primary)', width: 180 }} />
             </div>
           </div>
           {filteredPublic.length === 0 ? (
