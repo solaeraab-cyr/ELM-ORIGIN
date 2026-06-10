@@ -320,7 +320,11 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
   const sides = useMemo(() => distributeRing(participants), [participants]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 12, padding: 12 }}>
+    // Claim a tall vertical slot so the board doesn't collapse to a strip
+    // when the parent (VideoRoom's flex column) hasn't been given a forced
+    // height by the surrounding layout. 75vh / 640px floor matches the
+    // BoardFrame's own minHeight so the two don't fight.
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 'min(75vh, 640px)', gap: 12, padding: 12 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -336,17 +340,29 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
           <CompactStrip participants={participants} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
           <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} />
         </div>
-      ) : (
-        <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '80px minmax(0, 1fr) 80px', gridTemplateRows: '80px 1fr 80px', gap: 10 }}>
+      ) : participants.length >= 2 ? (
+        // Ring around the board — only when there are at least 2 people to
+        // distribute. Rows trimmed from 80→60 and cols from 80→60 so the
+        // board claims the central 1fr cell instead of a thin slice.
+        <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '60px minmax(0, 1fr) 60px', gridTemplateRows: '60px 1fr 60px', gap: 10 }}>
           <div /> {/* top-left corner */}
           <RingRow items={sides.top} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
           <div /> {/* top-right corner */}
           <RingCol items={sides.left} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
-          <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} />
+          <div style={{ gridColumn: '2 / 3', gridRow: '2 / 3' }}>
+            <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} />
+          </div>
           <RingCol items={sides.right} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
           <div />
           <RingRow items={sides.bottom} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
           <div />
+        </div>
+      ) : (
+        // ≤1 participant on desktop: skip the ring (one avatar stranded on
+        // the edge looks lonely). Show just the board — the "Drawing now"
+        // line in the footer already names who has the marker.
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} />
         </div>
       )}
 
@@ -427,13 +443,15 @@ function BoardFrame({ setApi, canDraw, onChange, onPointer }: {
 }) {
   return (
     <div style={{
-      gridColumn: '2 / 3', gridRow: '2 / 3',
+      width: '100%', height: '100%',
       borderRadius: 18, overflow: 'hidden',
       border: '1px solid var(--border-default)',
       background: 'var(--bg-surface)',
       boxShadow: 'var(--shadow-md)',
       position: 'relative',
-      minHeight: 240,
+      // Vertical floor — without this, Excalidraw collapses to its intrinsic
+      // height and the canvas ends up a thin horizontal strip on tall layouts.
+      minHeight: 'min(60vh, 480px)',
     }}>
       <Excalidraw
         excalidrawAPI={(api) => setApi(api as unknown as ExcalidrawApi)}
