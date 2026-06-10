@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client';
 import dynamic from 'next/dynamic';
 import { useVideoRoom } from '@/components/video/useVideoRoom';
 import { getRoomDetail, joinRoom, leaveRoom, type RoomDetail } from '@/app/actions/rooms';
+import { useRealtimeBroadcast } from '@/hooks/useRealtimeSubscription';
 import { toast } from '@/lib/toast';
 
 const VideoRoom = dynamic(() => import('@/components/video/VideoRoom'), { ssr: false });
@@ -74,6 +75,19 @@ function FocusRoom({ roomId }: { roomId: string }) {
     if (isDbRoom) leaveRoom(roomId).catch(() => {});
     router.push('/home');
   };
+
+  // If the host deletes this room while we're in it, the deleter's client
+  // emits a 'deleted' broadcast on room-control:{id}. Bail gracefully —
+  // LiveKit disconnects when the page unmounts.
+  useRealtimeBroadcast<{ roomId: string }>({
+    channelName: `room-control:${roomId}`,
+    event: 'deleted',
+    enabled: isDbRoom,
+    onMessage: () => {
+      toast('This room was deleted by the host');
+      router.push('/home');
+    },
+  });
 
   if (!me || !video.open) {
     return (

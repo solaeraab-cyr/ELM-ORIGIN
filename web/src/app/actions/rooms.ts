@@ -264,6 +264,112 @@ export async function createRoom(input: {
   return { ok: true, id: data.id };
 }
 
+// ── Host-only room management ────────────────────────────────────────────
+export type UpdateRoomResult = { ok: true } | { ok: false; error: string };
+
+export async function updateRoom(roomId: string, input: Partial<{
+  title: string;
+  subject: string | null;
+  description: string | null;
+  roomType: RoomType;
+  visibility: 'public' | 'private';
+  maxParticipants: number;
+  durationMinutes: number;
+  requiresApproval: boolean;
+  interviewFormat: string | null;
+}>): Promise<UpdateRoomResult> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: 'Not signed in' };
+
+  // Host check — the .eq('creator_id', user.id) on the update is a
+  // belt-and-suspenders second check, in case the lookup race-loses.
+  const { data: existing } = await supabase
+    .from('rooms')
+    .select('creator_id, room_type')
+    .eq('id', roomId)
+    .maybeSingle();
+  if (!existing) return { ok: false, error: 'Room not found' };
+  if (existing.creator_id !== user.id) return { ok: false, error: 'Only the host can edit this room' };
+
+  const patch: Record<string, unknown> = {};
+  if (input.title !== undefined) {
+    const t = input.title.trim();
+    if (!t) return { ok: false, error: 'Title is required' };
+    patch.title = t;
+  }
+  if (input.subject !== undefined) patch.subject = input.subject ? input.subject.trim() : null;
+  if (input.description !== undefined) patch.description = input.description ? input.description.trim() : null;
+  if (input.roomType !== undefined) patch.room_type = input.roomType;
+  if (input.visibility !== undefined) patch.is_public = input.visibility === 'public';
+  if (input.maxParticipants !== undefined) patch.max_participants = input.maxParticipants;
+  if (input.durationMinutes !== undefined) patch.duration_minutes = input.durationMinutes;
+  if (input.requiresApproval !== undefined) patch.requires_approval = input.requiresApproval;
+  if (input.interviewFormat !== undefined) {
+    // Persist only when the resulting room is collaboration; otherwise null.
+    const finalType = (input.roomType ?? existing.room_type) as RoomType;
+    patch.interview_format = finalType === 'collaboration' ? input.interviewFormat : null;
+  }
+
+  if (Object.keys(patch).length === 0) return { ok: true };
+
+  const { error } = await supabase
+    .from('rooms')
+    .update(patch)
+    .eq('id', roomId)
+    .eq('creator_id', user.id);
+  if (error) {
+    console.error('[updateRoom]', error.message);
+    return { ok: false, error: error.message };
+  }
+  revalidatePath('/home');
+  revalidatePath('/rooms');
+  revalidatePath(`/room/${roomId}`);
+  return { ok: true };
+}
+
+export type DeleteRoomResult = { ok: true } | { ok: false; error: string };
+
+export async function deleteRoom(roomId: string): Promise<DeleteRoomResult> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: 'Not signed in' };
+
+  // Host check.
+  const { data: existing } = await supabase
+    .from('rooms')
+    .select('creator_id')
+    .eq('id', roomId)
+    .maybeSingle();
+  if (!existing) return { ok: false, error: 'Room not found' };
+  if (existing.creator_id !== user.id) return { ok: false, error: 'Only the host can delete this room' };
+
+  // Best-effort cascade — most of these have ON DELETE CASCADE on the FK to
+  // rooms.id in the live schema, but we delete explicitly first in case any
+  // FK is missing or RLS blocks the cascade. Errors are swallowed; the final
+  // delete on rooms is what we care about.
+  await supabase.from('room_messages').delete().eq('room_id', roomId).then(() => {}, () => {});
+  await supabase.from('room_participants').delete().eq('room_id', roomId).then(() => {}, () => {});
+  await supabase.from('sessions').delete().eq('room_id', roomId).then(() => {}, () => {});
+  // Host's per-room meeting notes (rows are keyed by a stable title pattern).
+  // Other users' notes for this room can't be deleted under their own RLS;
+  // those rows are orphaned but no longer reachable from any UI.
+  await supabase.from('notes').delete().eq('user_id', user.id).eq('title', `Meeting · ${roomId}`).then(() => {}, () => {});
+
+  const { error } = await supabase
+    .from('rooms')
+    .delete()
+    .eq('id', roomId)
+    .eq('creator_id', user.id);
+  if (error) {
+    console.error('[deleteRoom]', error.message);
+    return { ok: false, error: error.message };
+  }
+  revalidatePath('/home');
+  revalidatePath('/rooms');
+  return { ok: true };
+}
+
 export type JoinResult = 'joined' | 'already' | 'full' | 'pending' | 'error';
 
 export async function joinRoom(roomId: string): Promise<JoinResult> {
