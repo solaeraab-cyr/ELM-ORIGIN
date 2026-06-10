@@ -12,6 +12,7 @@ interface Props {
   publicRooms: RoomCard[];
   myRooms: RoomCard[];
   scheduledRooms: RoomCard[];
+  currentUserId: string | null;
 }
 
 type Tab = 'public' | 'mine' | 'scheduled';
@@ -60,10 +61,16 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
-export default function RoomsClient({ publicRooms, myRooms, scheduledRooms }: Props) {
+export default function RoomsClient({ publicRooms, myRooms, scheduledRooms, currentUserId }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<Tab>('public');
+  // Same optimistic-hide pattern as HomeClient — drops a deleted card
+  // immediately while router.refresh() refetches the underlying lists.
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
+  const handleDeleted = (id: string) =>
+    setDeletedIds(prev => { const next = new Set(prev); next.add(id); return next; });
+  const filterDeleted = (rooms: RoomCard[]) => rooms.filter(r => !deletedIds.has(r.id));
 
   const filteredPublic = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -129,32 +136,38 @@ export default function RoomsClient({ publicRooms, myRooms, scheduledRooms }: Pr
               <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter by title, subject or format…" style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: 'var(--text-primary)', width: 180 }} />
             </div>
           </div>
-          {filteredPublic.length === 0 ? (
+          {filterDeleted(filteredPublic).length === 0 ? (
             <EmptyState text={query ? 'No rooms match your search' : 'No public rooms active right now'} />
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-              {filteredPublic.map(r => <RoomCardView key={r.id} room={r} variant="public" />)}
+              {filterDeleted(filteredPublic).map(r => (
+                <RoomCardView key={r.id} room={r} variant="public" currentUserId={currentUserId ?? undefined} onDeleted={handleDeleted} />
+              ))}
             </div>
           )}
         </>
       )}
 
       {tab === 'mine' && (
-        myRooms.length === 0 ? (
+        filterDeleted(myRooms).length === 0 ? (
           <EmptyState text="You haven't created or joined any rooms yet" />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-            {myRooms.map(r => <RoomCardView key={r.id} room={r} variant="mine" />)}
+            {filterDeleted(myRooms).map(r => (
+              <RoomCardView key={r.id} room={r} variant="mine" currentUserId={currentUserId ?? undefined} onDeleted={handleDeleted} />
+            ))}
           </div>
         )
       )}
 
       {tab === 'scheduled' && (
-        scheduledRooms.length === 0 ? (
+        filterDeleted(scheduledRooms).length === 0 ? (
           <EmptyState text="No upcoming scheduled rooms" />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-            {scheduledRooms.map(r => <RoomCardView key={r.id} room={r} variant="public" />)}
+            {filterDeleted(scheduledRooms).map(r => (
+              <RoomCardView key={r.id} room={r} variant="public" currentUserId={currentUserId ?? undefined} onDeleted={handleDeleted} />
+            ))}
           </div>
         )
       )}

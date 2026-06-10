@@ -4,10 +4,17 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/primitives';
 import { toast } from '@/lib/toast';
-import { createRoom, type RoomType } from '@/app/actions/rooms';
+import { createRoom, updateRoom, type RoomCard, type RoomType } from '@/app/actions/rooms';
 import { roomCode, roomLink } from '@/lib/roomCode';
 
-interface Props { onClose: () => void }
+interface Props {
+  onClose: () => void;
+  /** When set, the modal becomes an Edit form pre-filled from `room`.
+   *  Submitting calls updateRoom() and skips the share/created modal. */
+  editing?: RoomCard;
+  /** Called after a successful edit save (host-only edit flow). */
+  onSaved?: () => void;
+}
 
 // ── Subject taxonomy ─────────────────────────────────────────────────────
 // Grouped for <optgroup>. Subject is OPTIONAL on a room.
@@ -111,20 +118,21 @@ const labelStyle: React.CSSProperties = {
 
 const DURATIONS = [30, 45, 60, 90, 120];
 
-export default function CreateRoomModal({ onClose }: Props) {
+export default function CreateRoomModal({ onClose, editing, onSaved }: Props) {
   const router = useRouter();
-  const [title, setTitle] = useState('');
-  const [subject, setSubject] = useState('');
-  // True once the user has explicitly chosen a subject — stops the title-based
-  // auto-suggest from overwriting a deliberate selection.
-  const [subjectTouched, setSubjectTouched] = useState(false);
-  const [description, setDescription] = useState('');
-  const [roomType, setRoomType] = useState<RoomType>('study');
-  const [interviewFormat, setInterviewFormat] = useState('');
-  const [visibility, setVisibility] = useState<'public' | 'private'>('public');
-  const [maxP, setMaxP] = useState(10);
-  const [duration, setDuration] = useState(60);
-  const [requiresApproval, setRequiresApproval] = useState(false);
+  const isEdit = !!editing;
+  const [title, setTitle] = useState(editing?.title ?? '');
+  const [subject, setSubject] = useState(editing?.subject ?? '');
+  // In edit mode the user has effectively already chosen a subject, so we don't
+  // want the title auto-suggest to clobber it.
+  const [subjectTouched, setSubjectTouched] = useState(isEdit);
+  const [description, setDescription] = useState(editing?.description ?? '');
+  const [roomType, setRoomType] = useState<RoomType>((editing?.room_type as RoomType) ?? 'study');
+  const [interviewFormat, setInterviewFormat] = useState(editing?.interview_format ?? '');
+  const [visibility, setVisibility] = useState<'public' | 'private'>(editing ? (editing.is_public ? 'public' : 'private') : 'public');
+  const [maxP, setMaxP] = useState(editing?.max_participants ?? 10);
+  const [duration, setDuration] = useState(editing?.duration_minutes ?? 60);
+  const [requiresApproval, setRequiresApproval] = useState(editing?.requires_approval ?? false);
   const [submitting, setSubmitting] = useState(false);
   const [created, setCreated] = useState<{ id: string } | null>(null);
 
@@ -147,6 +155,32 @@ export default function CreateRoomModal({ onClose }: Props) {
   const create = async () => {
     if (!canCreate) return;
     setSubmitting(true);
+
+    if (isEdit && editing) {
+      const res = await updateRoom(editing.id, {
+        title,
+        subject: subject || null,
+        description: description || null,
+        roomType,
+        visibility,
+        maxParticipants: maxP,
+        durationMinutes: duration,
+        requiresApproval: visibility === 'private' ? requiresApproval : false,
+        interviewFormat: roomType === 'collaboration' && interviewFormat ? interviewFormat : null,
+      });
+      if (!res.ok) {
+        toast(res.error);
+        setSubmitting(false);
+        return;
+      }
+      toast('Room updated');
+      setSubmitting(false);
+      onSaved?.();
+      onClose();
+      router.refresh();
+      return;
+    }
+
     const result = await createRoom({
       title,
       subject: subject || undefined,
@@ -185,7 +219,7 @@ export default function CreateRoomModal({ onClose }: Props) {
       }}>
         {/* Header */}
         <div style={{ padding: '22px 28px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontFamily: 'Fraunces, serif', fontSize: 22, fontWeight: 700 }}>Start a study room</div>
+          <div style={{ fontFamily: 'Fraunces, serif', fontSize: 22, fontWeight: 700 }}>{isEdit ? 'Edit room' : 'Start a study room'}</div>
           <button onClick={onClose} disabled={submitting} style={{ width: 30, height: 30, borderRadius: 8, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="x" size={16} />
           </button>
@@ -310,7 +344,9 @@ export default function CreateRoomModal({ onClose }: Props) {
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}>
             {submitting ? (
-              <><span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: 999, animation: 'spin 0.8s linear infinite' }} /> Creating…</>
+              <><span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: 999, animation: 'spin 0.8s linear infinite' }} /> {isEdit ? 'Saving…' : 'Creating…'}</>
+            ) : isEdit ? (
+              <>Save changes</>
             ) : (
               <>Create &amp; Enter Room <Icon name="chevronR" size={13} /></>
             )}

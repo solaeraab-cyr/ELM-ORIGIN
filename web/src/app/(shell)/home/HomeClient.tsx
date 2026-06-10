@@ -18,11 +18,19 @@ interface HomeClientProps {
   myRooms: RoomCard[];
   greetingName: string;
   streak: number;
+  currentUserId: string | null;
 }
 
-export default function HomeClient({ publicRooms, myRooms, greetingName, streak }: HomeClientProps) {
+export default function HomeClient({ publicRooms, myRooms, greetingName, streak, currentUserId }: HomeClientProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [checked, setChecked] = useState<number[]>([0, 1]);
+  // Locally-hidden room ids — drops the card instantly on host delete,
+  // while router.refresh() refetches the underlying server data.
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
+  const handleDeleted = (id: string) =>
+    setDeletedIds(prev => { const next = new Set(prev); next.add(id); return next; });
+  const visibleMyRooms = myRooms.filter(r => !deletedIds.has(r.id));
+  const visiblePublicRooms = publicRooms.filter(r => !deletedIds.has(r.id));
 
   // Compute the date on the client only — rendering new Date() during SSR and
   // again on hydration produces a text mismatch (server UTC vs browser local
@@ -55,11 +63,19 @@ export default function HomeClient({ publicRooms, myRooms, greetingName, streak 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 32, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
           {/* Your Rooms */}
-          {myRooms.length > 0 && (
+          {visibleMyRooms.length > 0 && (
             <div>
               <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 22, fontWeight: 600, marginBottom: 16 }}>Your Rooms</h2>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-                {myRooms.map(room => <RoomCardView key={room.id} room={room} variant="mine" />)}
+                {visibleMyRooms.map(room => (
+                  <RoomCardView
+                    key={room.id}
+                    room={room}
+                    variant="mine"
+                    currentUserId={currentUserId ?? undefined}
+                    onDeleted={handleDeleted}
+                  />
+                ))}
               </div>
             </div>
           )}
@@ -68,9 +84,9 @@ export default function HomeClient({ publicRooms, myRooms, greetingName, streak 
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h2 style={{ fontFamily: 'Fraunces, serif', fontSize: 22, fontWeight: 600 }}>Public Rooms</h2>
-              <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{publicRooms.length} active</span>
+              <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{visiblePublicRooms.length} active</span>
             </div>
-            {publicRooms.length === 0 ? (
+            {visiblePublicRooms.length === 0 ? (
               <div style={{ background: 'var(--bg-surface)', border: '1px dashed var(--border-default)', borderRadius: 18, padding: 32, textAlign: 'center' }}>
                 <div style={{ fontSize: 28, marginBottom: 8 }}>🌱</div>
                 <div style={{ fontFamily: 'Fraunces, serif', fontStyle: 'italic', fontSize: 18, marginBottom: 4 }}>No public rooms active right now</div>
@@ -78,7 +94,15 @@ export default function HomeClient({ publicRooms, myRooms, greetingName, streak 
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-                {publicRooms.map(room => <RoomCardView key={room.id} room={room} variant="public" />)}
+                {visiblePublicRooms.map(room => (
+                  <RoomCardView
+                    key={room.id}
+                    room={room}
+                    variant="public"
+                    currentUserId={currentUserId ?? undefined}
+                    onDeleted={handleDeleted}
+                  />
+                ))}
               </div>
             )}
           </div>
