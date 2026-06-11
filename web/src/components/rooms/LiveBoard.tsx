@@ -343,14 +343,15 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
       ) : participants.length >= 2 ? (
         // Ring around the board — only when there are at least 2 people to
         // distribute. Rows trimmed from 80→60 and cols from 80→60 so the
-        // board claims the central 1fr cell instead of a thin slice.
+        // central 1fr cell can host a centered square board.
         <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '60px minmax(0, 1fr) 60px', gridTemplateRows: '60px 1fr 60px', gap: 10 }}>
           <div /> {/* top-left corner */}
           <RingRow items={sides.top} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
           <div /> {/* top-right corner */}
           <RingCol items={sides.left} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
-          <div style={{ gridColumn: '2 / 3', gridRow: '2 / 3' }}>
-            <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} />
+          {/* Flex wrapper centers the square within the 1fr cell. */}
+          <div style={{ gridColumn: '2 / 3', gridRow: '2 / 3', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 0 }}>
+            <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} square />
           </div>
           <RingCol items={sides.right} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
           <div />
@@ -359,10 +360,9 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
         </div>
       ) : (
         // ≤1 participant on desktop: skip the ring (one avatar stranded on
-        // the edge looks lonely). Show just the board — the "Drawing now"
-        // line in the footer already names who has the marker.
-        <div style={{ flex: 1, minHeight: 0 }}>
-          <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} />
+        // the edge looks lonely). Same centered square sizing as ring mode.
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} square />
         </div>
       )}
 
@@ -435,24 +435,37 @@ function CompactStrip({ participants, marker, giveMarker, currentUserId }: { par
   );
 }
 
-function BoardFrame({ setApi, canDraw, onChange, onPointer }: {
+function BoardFrame({ setApi, canDraw, onChange, onPointer, square = false }: {
   setApi: (api: ExcalidrawApi | null) => void;
   canDraw: boolean;
   onChange: (elements: readonly unknown[]) => void;
   onPointer: (payload: { pointer: { x: number; y: number }; button: 'down' | 'up' }) => void;
+  /** Square mode: a centered ~600-700 px canvas with breathing room on both
+   *  sides. Used by ring and solo layouts on desktop. The compact strip
+   *  layout passes `square=false` so the board stays full-bleed on phones. */
+  square?: boolean;
 }) {
+  // Common chrome.
+  const baseStyle: React.CSSProperties = {
+    borderRadius: 18, overflow: 'hidden',
+    border: '1px solid var(--border-default)',
+    background: 'var(--bg-surface)',
+    boxShadow: 'var(--shadow-md)',
+    position: 'relative',
+  };
+
+  // Two sizing modes:
+  //   • square: aspectRatio:1/1, capped at min(700px, 75vh) so it doesn't
+  //     stretch across wide monitors and stays sized to the smaller axis on
+  //     tall narrow ones. Centered horizontally within its parent.
+  //   • full: width:100%, height:100% + a min-height floor — for the compact
+  //     phone/many-people layout where the board owns the whole column.
+  const sizingStyle: React.CSSProperties = square
+    ? { width: '100%', maxWidth: 'min(700px, 75vh)', aspectRatio: '1 / 1', marginInline: 'auto' }
+    : { width: '100%', height: '100%', minHeight: 'min(60vh, 480px)' };
+
   return (
-    <div style={{
-      width: '100%', height: '100%',
-      borderRadius: 18, overflow: 'hidden',
-      border: '1px solid var(--border-default)',
-      background: 'var(--bg-surface)',
-      boxShadow: 'var(--shadow-md)',
-      position: 'relative',
-      // Vertical floor — without this, Excalidraw collapses to its intrinsic
-      // height and the canvas ends up a thin horizontal strip on tall layouts.
-      minHeight: 'min(60vh, 480px)',
-    }}>
+    <div style={{ ...baseStyle, ...sizingStyle }}>
       <Excalidraw
         excalidrawAPI={(api) => setApi(api as unknown as ExcalidrawApi)}
         viewModeEnabled={!canDraw}
