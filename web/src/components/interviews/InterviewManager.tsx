@@ -15,6 +15,7 @@ import {
   enqueuePeerMatch,
   cancelPeerMatch,
   pollPeerMatch,
+  checkAiInterviewAvailable,
   type InterviewType,
   type InterviewMode,
   type InterviewerCard,
@@ -320,6 +321,10 @@ function CreateInterviewForm({
   // Mock Razorpay checkout state.
   const [paying, setPaying] = useState(false);
 
+  // AI Mock availability probe — disables the card if env keys are missing.
+  const [aiAvailable, setAiAvailable] = useState<{ ok: boolean; missing: string[] } | null>(null);
+  useEffect(() => { checkAiInterviewAvailable().then(setAiAvailable); }, []);
+
   // Start Now is only enabled for AI and Peer modes.
   const canStartNow = mode === 'ai' || mode === 'peer';
   const effectiveStartMode = canStartNow ? startMode : 'scheduled';
@@ -408,7 +413,35 @@ function CreateInterviewForm({
       return;
     }
 
-    // All other paths (AI now, Group/Peer/AI scheduled) → createSession.
+    // AI Mock + Start Now → /api/ai-interview/start (creates the session row
+    // server-side, generates the opening turn + TTS, returns the sessionId).
+    if (mode === 'ai' && effectiveStartMode === 'now') {
+      startTransition(async () => {
+        try {
+          const res = await fetch('/api/ai-interview/start', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ format: format || 'General Mock Interview', topic, subject: topic }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            if (data.error === 'unavailable') {
+              setError(`AI Mock is currently unavailable — admin setup needed (${(data.missing || []).join(', ')}).`);
+            } else if (data.error === 'quota_exceeded') {
+              setError(`You've hit your ${data.plan ?? 'Free'} daily AI Mock limit (${data.limit ?? 2}).`);
+            } else {
+              setError(data.error || 'Failed to start AI interview');
+            }
+            return;
+          }
+          window.location.href = `/interview/ai/${data.sessionId}`;
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'Network error');
+        }
+      });
+      return;
+    }
+
+    // All other paths (Group/Peer/AI scheduled) → createSession + onCreated.
     startTransition(async () => {
       const scheduledFor =
         effectiveStartMode === 'now'
@@ -424,12 +457,6 @@ function CreateInterviewForm({
       });
       if (!res.ok) {
         setError(res.error || 'Failed to create interview');
-        return;
-      }
-
-      // AI Mock + Start Now → straight into a video room (placeholder agent).
-      if (mode === 'ai' && effectiveStartMode === 'now') {
-        window.location.href = `/room/${res.id}`;
         return;
       }
       onCreated();
@@ -512,21 +539,29 @@ function CreateInterviewForm({
           {MODES.map(m => {
             const active = mode === m.id;
             const gold = m.premium;
+            // AI Mock disabled iff the env probe returned not-ok. Other modes
+            // are always enabled.
+            const disabled = m.id === 'ai' && aiAvailable && !aiAvailable.ok;
             return (
               <button
                 key={m.id}
-                onClick={() => setMode(m.id)}
+                onClick={() => !disabled && setMode(m.id)}
+                disabled={!!disabled}
+                title={disabled ? `Currently unavailable — admin setup needed (${aiAvailable?.missing.join(', ')})` : ''}
                 style={{
                   padding: '14px 12px', borderRadius: 12, textAlign: 'left',
                   background: active ? (gold ? 'rgba(245,158,11,0.18)' : 'var(--brand-500, #4f46e5)') : 'var(--bg-hover)',
-                  color: active && !gold ? '#fff' : 'var(--text-primary)',
+                  color: active && !gold ? '#fff' : disabled ? 'var(--text-muted, #94a3b8)' : 'var(--text-primary)',
                   border: `1px solid ${active ? (gold ? 'var(--amber-500, #f59e0b)' : 'var(--brand-500, #4f46e5)') : 'var(--border-subtle)'}`,
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
+                  opacity: disabled ? 0.55 : 1,
                 }}
               >
                 <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{m.emoji} {m.title}</div>
                 <div style={{ fontSize: 11, fontWeight: 400, opacity: 0.85, marginBottom: 6, lineHeight: 1.4 }}>{m.sub}</div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: gold ? 'var(--amber-600, #d97706)' : (active ? 'rgba(255,255,255,0.85)' : 'var(--text-tertiary)') }}>{m.price}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: gold ? 'var(--amber-600, #d97706)' : (active ? 'rgba(255,255,255,0.85)' : 'var(--text-tertiary)') }}>
+                  {disabled ? 'Unavailable' : m.price}
+                </div>
               </button>
             );
           })}
