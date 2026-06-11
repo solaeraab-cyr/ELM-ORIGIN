@@ -10,7 +10,14 @@ import {
   joinInterview,
   cancelInterview,
   getInterviewQuota,
+  createSession,
+  listInterviewers,
+  enqueuePeerMatch,
+  cancelPeerMatch,
+  pollPeerMatch,
   type InterviewType,
+  type InterviewMode,
+  type InterviewerCard,
 } from '@/app/actions/interviews';
 
 type Tab = 'mine' | 'available' | 'create';
@@ -32,7 +39,49 @@ type InterviewRow = {
   partner?: ProfileLite | null;
 };
 
-const TOPICS = ['DSA', 'System Design', 'Behavioral', 'Frontend', 'Backend', 'ML'];
+// Shared subject taxonomy (same as Create Room).
+const SUBJECT_GROUPS: { label: string; items: string[] }[] = [
+  { label: 'Academic Subjects', items: ['Mathematics', 'Physics', 'Chemistry', 'Biology', 'Computer Science', 'Economics', 'Engineering', 'Medicine', 'Law', 'Languages', 'History', 'Business'] },
+  { label: 'Engineering Entrance Exams', items: ['JEE Main', 'JEE Advanced', 'BITSAT', 'EAMCET', 'KCET', 'MHT-CET', 'WBJEE', 'COMEDK', 'VITEEE', 'SRMJEEE', 'KIITEE'] },
+  { label: 'Medical Entrance Exams', items: ['NEET-UG', 'NEET-PG', 'AIIMS / INI-CET', 'FMGE', 'NExT', 'AIAPGET (AYUSH)', 'AIPVT (Vet)'] },
+  { label: 'Civil Services & Govt (Central)', items: ['UPSC CSE', 'UPSC IFS', 'UPSC IES / ESE', 'UPSC CMS', 'UPSC CAPF', 'UPSC NDA', 'UPSC CDS'] },
+  { label: 'State Civil Services (PSC)', items: ['APPSC (Andhra)', 'TSPSC (Telangana)', 'MPSC (Maharashtra)', 'KPSC (Karnataka)', 'TNPSC (Tamil Nadu)', 'UPPSC', 'BPSC (Bihar)', 'RPSC (Rajasthan)', 'WBPSC', 'HPSC (Haryana)', 'PPSC (Punjab)', 'JPSC (Jharkhand)', 'Other State PSC'] },
+  { label: 'Management / MBA', items: ['CAT', 'XAT', 'MAT', 'SNAP', 'CMAT', 'NMAT', 'IIFT', 'MICAT', 'TISS-NET', 'IBSAT', 'IPMAT'] },
+  { label: 'Banking & Finance Govt', items: ['SBI PO', 'SBI Clerk', 'IBPS PO', 'IBPS Clerk', 'IBPS SO', 'RBI Grade B', 'NABARD', 'SIDBI', 'LIC AAO'] },
+  { label: 'SSC (Staff Selection)', items: ['SSC CGL', 'SSC CHSL', 'SSC MTS', 'SSC GD', 'SSC JE', 'SSC Stenographer', 'SSC CPO'] },
+  { label: 'Defense', items: ['NDA', 'CDS', 'AFCAT', 'INET (Indian Navy)', 'TES (Tech Entry)', 'Agniveer', 'SSB Interview'] },
+  { label: 'Railways (RRB)', items: ['RRB NTPC', 'RRB ALP', 'RRB JE', 'RRB Group D', 'RRB Paramedical'] },
+  { label: 'Teaching / Academia', items: ['CTET', 'State TET', 'UGC NET', 'CSIR NET', 'KVS', 'NVS', 'DSSSB Teacher'] },
+  { label: 'Law', items: ['CLAT', 'AILET', 'LSAT-India', 'MH-CET Law', 'AIBE'] },
+  { label: 'Design & Architecture', items: ['NID DAT', 'NIFT', 'UCEED', 'CEED', 'NATA', 'JEE B.Arch'] },
+  { label: 'Engineering PG', items: ['GATE', 'IIT JAM', 'GPAT'] },
+  { label: 'Commerce / Finance Certs', items: ['CA Foundation', 'CA Inter', 'CA Final', 'CMA', 'CS', 'ACCA', 'CFA L1', 'CFA L2', 'CFA L3', 'FRM'] },
+  { label: 'International Study Abroad', items: ['SAT', 'ACT', 'GRE', 'GMAT', 'LSAT', 'MCAT', 'A-Levels', 'AP Exams'] },
+  { label: 'English Proficiency', items: ['IELTS', 'TOEFL', 'PTE Academic', 'Duolingo English Test', 'Cambridge CAE/CPE'] },
+  { label: 'Medical Abroad', items: ['USMLE Step 1', 'USMLE Step 2', 'USMLE Step 3', 'PLAB (UK)', 'AMC (Australia)', 'MCCQE (Canada)'] },
+  { label: 'IT / Tech Certifications', items: ['AWS SAA', 'AWS SAP', 'AWS Developer', 'Azure AZ-104', 'Azure AZ-305', 'GCP Cloud', 'Cisco CCNA', 'Cisco CCNP', 'CISSP', 'CompTIA Security+', 'Kubernetes CKA/CKAD'] },
+  { label: 'Project Mgmt & Quality', items: ['PMP', 'PRINCE2', 'Lean Six Sigma Green Belt', 'Lean Six Sigma Black Belt'] },
+  { label: 'School-Level', items: ['Class 10 Boards', 'Class 12 Boards', 'NTSE', 'Olympiads (Math/Physics/Chem/Bio/CS)', 'INSPIRE / KVPY', 'NMMS'] },
+  { label: 'Other', items: ['Other'] },
+];
+
+// Shared interview-format list (same as Create Room).
+const INTERVIEW_FORMATS = [
+  'HR / Behavioral', 'Technical Coding', 'System Design', 'Case Study (Consulting)',
+  'Finance Technical (IB / Equity)', 'Product Management', 'Data Science / ML',
+  'Sales Role-play', 'Portfolio Review', 'Whiteboard / Design Challenge',
+  'Group Discussion (GD)', 'Aptitude Test', 'UPSC Personality Test',
+  'SSB (Defense) Interview', 'Bank PI / GD', 'General Mock Interview',
+];
+
+// 5 interview modes, in the order the spec wants them rendered.
+const MODES: { id: InterviewMode; emoji: string; title: string; sub: string; price: string; premium?: boolean }[] = [
+  { id: 'ai',      emoji: '🤖', title: 'AI Mock Interview', sub: 'Practice anytime with our AI',           price: 'Free (2/day)' },
+  { id: 'peer',    emoji: '👤', title: 'Peer 1-on-1',       sub: 'Match with another aspirant',            price: 'Free' },
+  { id: 'group',   emoji: '👥', title: 'Group Mock',        sub: '3–5 aspirants',                          price: 'Free' },
+  { id: 'mentor',  emoji: '🎯', title: 'Mentor 1-on-1',     sub: 'Verified ELM mentor',                    price: 'From ₹500' },
+  { id: 'premium', emoji: '⭐', title: 'Premium Mentor',    sub: 'Ex-FAANG / Senior industry', price: 'From ₹3000', premium: true },
+];
 
 const TYPE_LABEL: Record<InterviewType, string> = {
   peer: 'Peer · 1-on-1',
@@ -224,31 +273,185 @@ function CreateInterviewForm({
   onCreated: () => void;
   quota: { plan: string; limit: number; used: number; remaining: number } | null;
 }) {
-  const [type, setType] = useState<InterviewType>('peer');
-  const [topic, setTopic] = useState<string>(TOPICS[0]);
+  const router = useRouter();
+  const [mode, setMode] = useState<InterviewMode>('ai');
+  const [startMode, setStartMode] = useState<'now' | 'scheduled'>('now');
+  const [topic, setTopic] = useState<string>('');
+  const [format, setFormat] = useState<string>('');
   const [date, setDate] = useState<string>(() => new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10));
   const [time, setTime] = useState<string>('18:00');
   const [submitting, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  // Interviewer list (mentor / premium tiers).
+  const [interviewers, setInterviewers] = useState<InterviewerCard[]>([]);
+  const [selectedInterviewer, setSelectedInterviewer] = useState<InterviewerCard | null>(null);
+  const [loadingInterviewers, setLoadingInterviewers] = useState(false);
+  useEffect(() => {
+    if (mode !== 'mentor' && mode !== 'premium') {
+      setInterviewers([]);
+      setSelectedInterviewer(null);
+      return;
+    }
+    setLoadingInterviewers(true);
+    listInterviewers({ tier: mode === 'premium' ? 'premium' : 'regular' })
+      .then((list) => { setInterviewers(list); setSelectedInterviewer(null); })
+      .finally(() => setLoadingInterviewers(false));
+  }, [mode]);
+
+  // Peer Start-Now search state.
+  const [peerQueueId, setPeerQueueId] = useState<string | null>(null);
+  const [peerElapsed, setPeerElapsed] = useState(0);
+  useEffect(() => {
+    if (!peerQueueId) return;
+    const t0 = Date.now();
+    const tick = setInterval(async () => {
+      setPeerElapsed(Math.floor((Date.now() - t0) / 1000));
+      const r = await pollPeerMatch(peerQueueId);
+      if (r.status === 'matched' && r.sessionId) {
+        clearInterval(tick);
+        setPeerQueueId(null);
+        window.location.href = `/room/${r.sessionId}`;
+      }
+    }, 2500);
+    return () => clearInterval(tick);
+  }, [peerQueueId]);
+
+  // Mock Razorpay checkout state.
+  const [paying, setPaying] = useState(false);
+
+  // Start Now is only enabled for AI and Peer modes.
+  const canStartNow = mode === 'ai' || mode === 'peer';
+  const effectiveStartMode = canStartNow ? startMode : 'scheduled';
   const overLimit = quota ? Number.isFinite(quota.limit) && quota.used >= quota.limit : false;
 
+  // Submit label depends on mode + timing.
+  const isMentorTier = mode === 'mentor' || mode === 'premium';
+  const submitLabel = (() => {
+    if (submitting || paying) return mode === 'ai' && effectiveStartMode === 'now' ? 'Starting…' : 'Working…';
+    if (isMentorTier) {
+      const price = selectedInterviewer?.price_paise ?? 0;
+      return `Pay ₹${Math.round(price / 100)} & Book Session`;
+    }
+    if (effectiveStartMode === 'now') {
+      if (mode === 'ai') return 'Start AI Interview';
+      if (mode === 'peer') return 'Find a match now';
+    }
+    return 'Create Interview';
+  })();
+
+  const submitDisabled = submitting || paying || overLimit || !topic || (isMentorTier && !selectedInterviewer);
+
+  // ── Submit dispatch ─────────────────────────────────────────────────────
   const submit = () => {
     setError(null);
-    const scheduledFor = new Date(`${date}T${time}`).toISOString();
-    startTransition(async () => {
-      const res = await createInterview({ type, topic, scheduledFor });
-      if (!res.ok) {
-        if (res.error === 'quota_exceeded') {
-          setError(`You've hit your ${quota?.plan ?? 'Free'} plan limit of ${quota?.limit ?? 2} interviews/day.`);
-        } else {
-          setError(res.error || 'Failed to create interview');
+
+    // Peer 1-on-1 + Start Now → peer_queue (no interview_sessions row yet;
+    // the match flow inserts one).
+    if (mode === 'peer' && effectiveStartMode === 'now') {
+      startTransition(async () => {
+        const r = await enqueuePeerMatch({ format });
+        if (!r.ok) { setError(r.error); return; }
+        setPeerQueueId(r.queueId);
+      });
+      return;
+    }
+
+    // Mentor / Premium → create a scheduled session row + mock Razorpay.
+    if (isMentorTier && selectedInterviewer) {
+      startTransition(async () => {
+        const scheduledFor = new Date(`${date}T${time}`).toISOString();
+        const sess = await createSession({
+          mode,
+          startMode: 'scheduled',
+          topic,
+          interviewFormat: format || null,
+          scheduledFor,
+          interviewerId: selectedInterviewer.user_id,
+          pricePaise: selectedInterviewer.price_paise,
+        });
+        if (!sess.ok) { setError(sess.error); return; }
+
+        // Mock Razorpay checkout — fetch a mock order, "confirm", call verify.
+        setPaying(true);
+        try {
+          const orderRes = await fetch('/api/payments/razorpay/create-order', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              amountPaise: selectedInterviewer.price_paise,
+              sessionId: sess.id,
+              mentorId: selectedInterviewer.user_id,
+            }),
+          });
+          const order = await orderRes.json();
+          if (!orderRes.ok) throw new Error(order.error || 'Order failed');
+          const ok = window.confirm(`Mock checkout: pay ₹${Math.round(selectedInterviewer.price_paise / 100)}?`);
+          if (!ok) { setPaying(false); return; }
+          await fetch('/api/payments/razorpay/verify', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderId: order.orderId,
+              paymentId: `mock_pay_${Date.now()}`,
+              signature: 'mock',
+              sessionId: sess.id,
+              mentorId: selectedInterviewer.user_id,
+              amountPaise: selectedInterviewer.price_paise,
+            }),
+          });
+          setPaying(false);
+          onCreated();
+        } catch (e) {
+          setPaying(false);
+          setError(e instanceof Error ? e.message : 'Payment failed');
         }
+      });
+      return;
+    }
+
+    // All other paths (AI now, Group/Peer/AI scheduled) → createSession.
+    startTransition(async () => {
+      const scheduledFor =
+        effectiveStartMode === 'now'
+          ? new Date().toISOString()
+          : new Date(`${date}T${time}`).toISOString();
+
+      const res = await createSession({
+        mode,
+        startMode: effectiveStartMode,
+        topic,
+        interviewFormat: format || null,
+        scheduledFor,
+      });
+      if (!res.ok) {
+        setError(res.error || 'Failed to create interview');
+        return;
+      }
+
+      // AI Mock + Start Now → straight into a video room (placeholder agent).
+      if (mode === 'ai' && effectiveStartMode === 'now') {
+        window.location.href = `/room/${res.id}`;
         return;
       }
       onCreated();
     });
   };
+
+  // ── Searching-for-peer overlay ──────────────────────────────────────────
+  if (peerQueueId) {
+    return (
+      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 28, maxWidth: 640, textAlign: 'center' }}>
+        <div style={{ fontFamily: 'Fraunces, serif', fontSize: 24, fontWeight: 500, marginBottom: 8 }}>Searching for a match…</div>
+        <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 18 }}>{peerElapsed}s elapsed — we&apos;ll route you both into the room once paired.</div>
+        <button
+          onClick={async () => {
+            const id = peerQueueId; setPeerQueueId(null);
+            if (id) await cancelPeerMatch(id);
+          }}
+          style={{ height: 40, padding: '0 22px', borderRadius: 999, background: 'var(--bg-hover)', border: '1px solid var(--border-default)', fontSize: 13, fontWeight: 600 }}
+        >Cancel search</button>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -262,123 +465,174 @@ function CreateInterviewForm({
     >
       <h3 style={{ fontFamily: 'Fraunces, serif', fontSize: 24, fontWeight: 500, marginBottom: 6 }}>Create a new interview</h3>
       <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 22 }}>
-        Schedule a session — others can join from the &quot;Available&quot; tab if you leave the partner open.
+        Start now or schedule for later — choose a mode, topic, and format.
       </p>
 
       {quota && (
-        <div
-          style={{
-            fontSize: 12,
-            color: overLimit ? 'var(--amber-500, #f59e0b)' : 'var(--text-tertiary)',
-            marginBottom: 18,
-            padding: '8px 12px',
-            borderRadius: 8,
-            background: overLimit ? 'rgba(245,158,11,0.10)' : 'var(--bg-hover)',
-            border: '1px solid var(--border-subtle)',
-          }}
-        >
-          {Number.isFinite(quota.limit)
-            ? `${quota.plan} plan · ${quota.used}/${quota.limit} interviews today`
-            : `${quota.plan} plan · unlimited interviews`}
+        <div style={{ fontSize: 12, color: overLimit ? 'var(--amber-500, #f59e0b)' : 'var(--text-tertiary)', marginBottom: 18, padding: '8px 12px', borderRadius: 8, background: overLimit ? 'rgba(245,158,11,0.10)' : 'var(--bg-hover)', border: '1px solid var(--border-subtle)' }}>
+          {Number.isFinite(quota.limit) ? `${quota.plan} plan · ${quota.used}/${quota.limit} interviews today` : `${quota.plan} plan · unlimited interviews`}
           {overLimit && <> · <a href="/pricing" style={{ color: 'var(--brand-500, #4f46e5)', fontWeight: 600 }}>Upgrade</a></>}
         </div>
       )}
 
+      {/* ── Timing toggle ──────────────────────────────────────────────── */}
       <div style={{ marginBottom: 20 }}>
-        <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-tertiary)', display: 'block', marginBottom: 8 }}>Interview type</label>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-          {(['peer', 'group', 'coach'] as InterviewType[]).map((t) => {
-            const active = type === t;
-            const disabled = t === 'coach';
+        <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-tertiary)', display: 'block', marginBottom: 8 }}>When</label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {(['now', 'scheduled'] as const).map(s => {
+            const active = effectiveStartMode === s;
+            const disabled = s === 'now' && !canStartNow;
             return (
               <button
-                key={t}
-                onClick={() => !disabled && setType(t)}
+                key={s}
+                onClick={() => !disabled && setStartMode(s)}
                 disabled={disabled}
                 style={{
-                  padding: '12px 10px',
-                  borderRadius: 12,
+                  padding: '14px 12px', borderRadius: 12,
                   background: active ? 'var(--brand-500, #4f46e5)' : 'var(--bg-hover)',
                   color: active ? '#fff' : disabled ? 'var(--text-muted, #94a3b8)' : 'var(--text-primary)',
                   border: `1px solid ${active ? 'var(--brand-500, #4f46e5)' : 'var(--border-subtle)'}`,
-                  fontSize: 13,
-                  fontWeight: 600,
+                  fontSize: 14, fontWeight: 600,
                   cursor: disabled ? 'not-allowed' : 'pointer',
-                  opacity: disabled ? 0.6 : 1,
-                  textAlign: 'left',
+                  opacity: disabled ? 0.6 : 1, textAlign: 'left',
                 }}
-                title={disabled ? 'Coming soon' : ''}
               >
-                <div>{t === 'peer' ? 'Peer' : t === 'group' ? 'Group' : 'Mock (AI)'}</div>
-                <div style={{ fontSize: 11, fontWeight: 400, opacity: 0.8, marginTop: 2 }}>
-                  {t === 'peer' ? '1-on-1' : t === 'group' ? '3-5 people' : 'Coming soon'}
-                </div>
+                <div>{s === 'now' ? '⚡ Start Now' : '📅 Schedule for later'}</div>
+                {disabled && <div style={{ fontSize: 11, fontWeight: 400, opacity: 0.8, marginTop: 2 }}>available for AI &amp; Peer</div>}
               </button>
             );
           })}
         </div>
       </div>
 
+      {/* ── 5 Mode cards ──────────────────────────────────────────────── */}
+      <div style={{ marginBottom: 20 }}>
+        <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-tertiary)', display: 'block', marginBottom: 8 }}>Interview mode</label>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+          {MODES.map(m => {
+            const active = mode === m.id;
+            const gold = m.premium;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setMode(m.id)}
+                style={{
+                  padding: '14px 12px', borderRadius: 12, textAlign: 'left',
+                  background: active ? (gold ? 'rgba(245,158,11,0.18)' : 'var(--brand-500, #4f46e5)') : 'var(--bg-hover)',
+                  color: active && !gold ? '#fff' : 'var(--text-primary)',
+                  border: `1px solid ${active ? (gold ? 'var(--amber-500, #f59e0b)' : 'var(--brand-500, #4f46e5)') : 'var(--border-subtle)'}`,
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{m.emoji} {m.title}</div>
+                <div style={{ fontSize: 11, fontWeight: 400, opacity: 0.85, marginBottom: 6, lineHeight: 1.4 }}>{m.sub}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: gold ? 'var(--amber-600, #d97706)' : (active ? 'rgba(255,255,255,0.85)' : 'var(--text-tertiary)') }}>{m.price}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Topic / Subject (grouped) ─────────────────────────────────── */}
       <div style={{ marginBottom: 20 }}>
         <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-tertiary)', display: 'block', marginBottom: 8 }}>Topic / Subject</label>
         <select
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          style={{
-            width: '100%',
-            height: 42,
-            padding: '0 12px',
-            background: 'var(--bg-base)',
-            border: '1px solid var(--border-default, var(--border-subtle))',
-            borderRadius: 10,
-            fontSize: 14,
-            color: 'var(--text-primary)',
-          }}
+          style={{ width: '100%', height: 42, padding: '0 12px', background: 'var(--bg-base)', border: '1px solid var(--border-default, var(--border-subtle))', borderRadius: 10, fontSize: 14, color: 'var(--text-primary)' }}
         >
-          {TOPICS.map((t) => (
-            <option key={t} value={t}>{t}</option>
+          <option value="">Select a topic…</option>
+          {SUBJECT_GROUPS.map(g => (
+            <optgroup key={g.label} label={g.label}>
+              {g.items.map(s => <option key={s} value={s}>{s}</option>)}
+            </optgroup>
           ))}
         </select>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-tertiary)', display: 'block', marginBottom: 8 }}>Date</label>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            style={{
-              width: '100%',
-              height: 42,
-              padding: '0 12px',
-              background: 'var(--bg-base)',
-              border: '1px solid var(--border-default, var(--border-subtle))',
-              borderRadius: 10,
-              fontSize: 14,
-              color: 'var(--text-primary)',
-            }}
-          />
-        </div>
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-tertiary)', display: 'block', marginBottom: 8 }}>Time</label>
-          <input
-            type="time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-            style={{
-              width: '100%',
-              height: 42,
-              padding: '0 12px',
-              background: 'var(--bg-base)',
-              border: '1px solid var(--border-default, var(--border-subtle))',
-              borderRadius: 10,
-              fontSize: 14,
-              color: 'var(--text-primary)',
-            }}
-          />
-        </div>
+      {/* ── Interview Format ──────────────────────────────────────────── */}
+      <div style={{ marginBottom: 20 }}>
+        <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-tertiary)', display: 'block', marginBottom: 8 }}>Interview format</label>
+        <select
+          value={format}
+          onChange={(e) => setFormat(e.target.value)}
+          style={{ width: '100%', height: 42, padding: '0 12px', background: 'var(--bg-base)', border: '1px solid var(--border-default, var(--border-subtle))', borderRadius: 10, fontSize: 14, color: 'var(--text-primary)' }}
+        >
+          <option value="">No specific format</option>
+          {INTERVIEW_FORMATS.map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
       </div>
+
+      {/* ── Conditional: mentor list ──────────────────────────────────── */}
+      {isMentorTier && (
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-tertiary)', display: 'block', marginBottom: 8 }}>
+            {mode === 'premium' ? 'Pick a premium mentor' : 'Pick a mentor'}
+          </label>
+          {loadingInterviewers ? (
+            <div style={{ fontSize: 13, color: 'var(--text-tertiary)', padding: 14 }}>Loading…</div>
+          ) : interviewers.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--text-tertiary)', padding: 14, background: 'var(--bg-hover)', borderRadius: 10, border: '1px solid var(--border-subtle)' }}>
+              No {mode === 'premium' ? 'premium' : ''} mentors available right now — check back soon.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {interviewers.map(iv => {
+                const sel = selectedInterviewer?.user_id === iv.user_id;
+                return (
+                  <button
+                    key={iv.user_id}
+                    onClick={() => setSelectedInterviewer(iv)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12, padding: 12,
+                      background: sel ? 'rgba(79,70,229,0.08)' : 'var(--bg-hover)',
+                      border: `1.5px solid ${sel ? 'var(--brand-500, #4f46e5)' : 'var(--border-subtle)'}`,
+                      borderRadius: 12, cursor: 'pointer', textAlign: 'left',
+                    }}
+                  >
+                    <Avatar name={iv.full_name ?? 'Mentor'} size={48} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700 }}>
+                        {iv.full_name ?? 'Mentor'}
+                        {iv.is_faang_verified && (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 999, background: 'rgba(245,158,11,0.15)', color: 'var(--amber-600, #d97706)' }}>
+                            ⭐ Verified FAANG / Senior Industry
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                        {iv.current_role || '—'}{iv.current_company ? ` · ${iv.current_company}` : ''}
+                        {typeof iv.years_experience === 'number' ? ` · ${iv.years_experience}y exp` : ''}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                        {iv.avg_rating ? `${iv.avg_rating.toFixed(1)} ★` : 'No ratings yet'}
+                        {iv.total_sessions ? ` · ${iv.total_sessions} sessions` : ''}
+                      </div>
+                    </div>
+                    <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>₹{Math.round(iv.price_paise / 100)}</div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Date / time (only when scheduling) ─────────────────────────── */}
+      {effectiveStartMode === 'scheduled' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-tertiary)', display: 'block', marginBottom: 8 }}>Date</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)}
+              style={{ width: '100%', height: 42, padding: '0 12px', background: 'var(--bg-base)', border: '1px solid var(--border-default, var(--border-subtle))', borderRadius: 10, fontSize: 14, color: 'var(--text-primary)' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-tertiary)', display: 'block', marginBottom: 8 }}>Time</label>
+            <input type="time" value={time} onChange={e => setTime(e.target.value)}
+              style={{ width: '100%', height: 42, padding: '0 12px', background: 'var(--bg-base)', border: '1px solid var(--border-default, var(--border-subtle))', borderRadius: 10, fontSize: 14, color: 'var(--text-primary)' }} />
+          </div>
+        </div>
+      )}
 
       {error && (
         <div style={{ fontSize: 13, color: '#ef4444', marginBottom: 14 }}>{error}</div>
@@ -386,22 +640,18 @@ function CreateInterviewForm({
 
       <button
         onClick={submit}
-        disabled={submitting || overLimit}
+        disabled={submitDisabled}
         style={{
-          width: '100%',
-          height: 48,
-          borderRadius: 999,
+          width: '100%', height: 48, borderRadius: 999,
           background: 'var(--gradient-brand, linear-gradient(135deg, #4f46e5, #7c3aed))',
-          color: '#fff',
-          fontWeight: 600,
-          fontSize: 15,
-          border: 'none',
-          opacity: submitting || overLimit ? 0.6 : 1,
-          cursor: submitting || overLimit ? 'not-allowed' : 'pointer',
+          color: '#fff', fontWeight: 600, fontSize: 15, border: 'none',
+          opacity: submitDisabled ? 0.6 : 1, cursor: submitDisabled ? 'not-allowed' : 'pointer',
         }}
       >
-        {submitting ? 'Creating…' : overLimit ? 'Daily limit reached' : 'Create Interview'}
+        {overLimit ? 'Daily limit reached' : submitLabel}
       </button>
+      {/* router import keeps webpack happy when we conditionally redirect. */}
+      <span style={{ display: 'none' }}>{router && ' '}</span>
     </div>
   );
 }
