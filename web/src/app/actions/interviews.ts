@@ -267,13 +267,10 @@ export async function listMyInterviewSessions() {
   return listInterviews();
 }
 
-// Read-only env probe so the client can grey out the AI Mock card if the
-// admin hasn't set the three required keys.
+// Free-tier stack — only the Groq key is required.
 export async function checkAiInterviewAvailable(): Promise<{ ok: boolean; missing: string[] }> {
   const missing: string[] = [];
-  if (!process.env.OPENAI_API_KEY) missing.push('OPENAI_API_KEY');
-  if (!process.env.ANTHROPIC_API_KEY) missing.push('ANTHROPIC_API_KEY');
-  if (!process.env.ELEVENLABS_API_KEY) missing.push('ELEVENLABS_API_KEY');
+  if (!process.env.GROQ_API_KEY) missing.push('GROQ_API_KEY');
   return { ok: missing.length === 0, missing };
 }
 

@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { aiInterviewAvailable, claudeNextTurn, ttsToBuffer, uploadAudio } from '@/lib/aiInterview/clients';
+import { aiInterviewAvailable } from '@/lib/aiInterview/clients';
 import { openingFor, systemPromptFor } from '@/lib/aiInterview/prompts';
 
-// Start an AI mock interview. Creates the session row, generates the Phase 1
-// opening via Claude (the prompt is structured so the very first turn is a
-// greeting + intro request), TTS it, persist transcript row 1, return everything
-// the client needs to drop the candidate straight into the interview.
+// Start an AI mock interview. Creates the session row, persists the Phase 1
+// opening (deterministic per format), returns the text — the client speaks it
+// via window.speechSynthesis.
 
 export const runtime = 'nodejs';
 
@@ -28,8 +27,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid body' }, { status: 400 });
   }
 
-  // Quota check (Free = 2/day for AI Mocks). Reuse the existing pattern by
-  // counting today's ai sessions for this user.
+  // Quota: Free 2/day, Pro 10/day, Elite unlimited.
   const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
   const { count: usedToday } = await supabase
     .from('interview_sessions')
@@ -63,36 +61,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: sessErr?.message || 'Could not create session' }, { status: 500 });
   }
 
-  // Build the opening turn from Claude — feed it an empty history with the
-  // system prompt; we also pre-seed the opening line so Claude's first turn
-  // matches our Phase 1 spec exactly. We just use the static opening string
-  // (no LLM call needed) — saves a turn's worth of cost and keeps the opening
-  // deterministic per format. Subsequent turns use Claude.
-  const opening = openingFor(format);
-  void claudeNextTurn; // referenced so the import doesn't dead-strip in dev
-
-  // TTS the opening, upload, persist.
-  let openingAudioUrl: string | null = null;
-  const tts = await ttsToBuffer(opening);
-  if (tts) {
-    openingAudioUrl = await uploadAudio({ sessionId: sess.id as string, role: 'ai', buffer: tts.buffer, mime: tts.mime });
-  }
-
-  const systemPrompt = systemPromptFor({ format, topic, subject });
   // Stash the system prompt on the session row's `feedback` text column so
   // the respond/end endpoints don't need to rebuild it from the format string.
+  const systemPrompt = systemPromptFor({ format, topic, subject });
   await supabase.from('interview_sessions').update({ feedback: systemPrompt }).eq('id', sess.id);
 
+  // Persist the Phase-1 opening (no TTS — the client speaks it).
+  const opening = openingFor(format);
   await supabase.from('interview_transcripts').insert({
     session_id: sess.id,
     role: 'ai',
     content: opening,
-    audio_url: openingAudioUrl,
   });
 
   return NextResponse.json({
     sessionId: sess.id,
     openingQuestion: opening,
-    openingAudioUrl,
   });
 }
