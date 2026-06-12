@@ -84,12 +84,28 @@ export default function ResultClient({
           </button>
           {showTranscript && (
             <div style={{ marginTop: 14, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 14, padding: 18 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 10 }}>Click any AI bubble to replay it via your browser voice (free tier).</div>
               {turns.map((t) => (
-                <div key={t.id} style={{ marginBottom: 12, padding: 10, borderRadius: 10, background: t.role === 'ai' ? 'var(--bg-hover)' : 'rgba(79,70,229,0.06)' }}>
+                <div key={t.id} style={{ marginBottom: 12, padding: 10, borderRadius: 10, background: t.role === 'ai' ? 'var(--bg-hover)' : 'rgba(79,70,229,0.06)', position: 'relative' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 700, marginBottom: 4 }}>{t.role === 'ai' ? 'INTERVIEWER' : 'CANDIDATE'}</div>
                   <div style={{ fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{t.content}</div>
-                  {t.audio_url && (
-                    <audio controls src={t.audio_url} style={{ width: '100%', marginTop: 8 }} />
+                  {t.role === 'ai' && (
+                    <button
+                      onClick={() => {
+                        if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+                        window.speechSynthesis.cancel();
+                        const u = new SpeechSynthesisUtterance(t.content);
+                        const v = window.speechSynthesis.getVoices();
+                        const picked =
+                          v.find(x => x.lang === 'en-IN') ||
+                          v.find(x => x.lang.startsWith('en-') && /Google|Microsoft/.test(x.name)) ||
+                          v.find(x => x.lang.startsWith('en-'));
+                        if (picked) u.voice = picked;
+                        window.speechSynthesis.speak(u);
+                      }}
+                      title="Replay"
+                      style={{ position: 'absolute', top: 8, right: 8, height: 26, padding: '0 10px', borderRadius: 999, background: 'var(--bg-surface)', border: '1px solid var(--border-default)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                    >▶ Replay</button>
                   )}
                 </div>
               ))}

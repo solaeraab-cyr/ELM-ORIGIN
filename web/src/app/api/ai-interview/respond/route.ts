@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { aiInterviewAvailable, claudeNextTurn, transcribeWebmAudio, ttsToBuffer, uploadAudio } from '@/lib/aiInterview/clients';
+import { aiInterviewAvailable, nextInterviewerTurn, transcribeWebmAudio } from '@/lib/aiInterview/clients';
 
-// One turn: user audio → Whisper → Claude → ElevenLabs → response audio.
-// All four legs persist to interview_transcripts so the result page can replay.
+// One turn: user audio → Groq Whisper → Groq Llama 3.3 70B → text reply.
+// TTS happens in the browser (window.speechSynthesis), so no audio storage.
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Missing sessionId or audio' }, { status: 400 });
   }
 
-  // Verify ownership + load system prompt + history.
+  // Verify ownership + load system prompt.
   const { data: sess } = await supabase
     .from('interview_sessions')
     .select('id, student_id, feedback')
@@ -37,18 +37,14 @@ export async function POST(req: Request) {
   }
   const systemPrompt = (sess.feedback as string | null) || '';
 
-  // Whisper transcribe + upload user audio in parallel.
-  const userAudioBuffer = await audio.arrayBuffer();
-  const [userText, userAudioUrl] = await Promise.all([
-    transcribeWebmAudio(audio).catch(() => ''),
-    uploadAudio({ sessionId, role: 'user', buffer: userAudioBuffer, mime: audio.type || 'audio/webm' }),
-  ]);
+  let userText = '';
+  try { userText = await transcribeWebmAudio(audio); }
+  catch (e) { console.error('[respond] groq stt', e); }
 
   await supabase.from('interview_transcripts').insert({
     session_id: sessionId,
     role: 'user',
     content: userText,
-    audio_url: userAudioUrl,
   });
 
   // Load full history (after the user turn we just inserted).
@@ -58,32 +54,24 @@ export async function POST(req: Request) {
     .eq('session_id', sessionId)
     .order('created_at', { ascending: true });
 
-  let claudeOut: { reply: string; shouldEnd: boolean };
+  let llmOut: { reply: string; shouldEnd: boolean };
   try {
-    claudeOut = await claudeNextTurn({
+    llmOut = await nextInterviewerTurn({
       systemPrompt,
       history: (history ?? []).map(r => ({ role: r.role as 'ai' | 'user', content: r.content as string })),
     });
   } catch (e) {
-    console.error('[respond] claude', e);
+    console.error('[respond] groq llm', e);
     return NextResponse.json({ error: 'AI failed to respond' }, { status: 502 });
-  }
-
-  // TTS the AI reply.
-  let aiAudioUrl: string | null = null;
-  const tts = await ttsToBuffer(claudeOut.reply);
-  if (tts) {
-    aiAudioUrl = await uploadAudio({ sessionId, role: 'ai', buffer: tts.buffer, mime: tts.mime });
   }
 
   await supabase.from('interview_transcripts').insert({
     session_id: sessionId,
     role: 'ai',
-    content: claudeOut.reply,
-    audio_url: aiAudioUrl,
+    content: llmOut.reply,
   });
 
-  if (claudeOut.shouldEnd) {
+  if (llmOut.shouldEnd) {
     await supabase
       .from('interview_sessions')
       .update({ status: 'completed', ended_at: new Date().toISOString() })
@@ -92,8 +80,7 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     userText,
-    aiResponseText: claudeOut.reply,
-    aiResponseAudioUrl: aiAudioUrl,
-    sessionShouldEnd: claudeOut.shouldEnd,
+    aiResponseText: llmOut.reply,
+    sessionShouldEnd: llmOut.shouldEnd,
   });
 }

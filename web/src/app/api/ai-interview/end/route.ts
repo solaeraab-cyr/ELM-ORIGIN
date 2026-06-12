@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { aiInterviewAvailable, claudeScorecard } from '@/lib/aiInterview/clients';
+import { aiInterviewAvailable, generateScorecard } from '@/lib/aiInterview/clients';
 import { SCORECARD_PROMPT } from '@/lib/aiInterview/prompts';
 
-// Generate the post-interview scorecard. Idempotent — if the scorecard already
-// exists for this session we return it instead of paying for another Claude call.
+// Generate the post-interview scorecard via Groq Llama 3.3 70B. Idempotent —
+// returns the existing row on retry.
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -26,7 +26,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
   }
 
-  // Verify ownership.
   const { data: sess } = await supabase
     .from('interview_sessions')
     .select('id, student_id')
@@ -36,7 +35,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   }
 
-  // If a scorecard exists already, return it (idempotency for accidental retries).
   const { data: existing } = await supabase
     .from('interview_scorecards')
     .select('*')
@@ -44,7 +42,6 @@ export async function POST(req: Request) {
     .maybeSingle();
   if (existing) return NextResponse.json({ scorecard: existing });
 
-  // Compose the transcript and ask Claude.
   const { data: rows } = await supabase
     .from('interview_transcripts')
     .select('role, content')
@@ -56,9 +53,9 @@ export async function POST(req: Request) {
 
   let raw: Record<string, unknown>;
   try {
-    raw = await claudeScorecard(SCORECARD_PROMPT, transcript);
+    raw = await generateScorecard(SCORECARD_PROMPT, transcript);
   } catch (e) {
-    console.error('[end] claude scorecard', e);
+    console.error('[end] groq scorecard', e);
     return NextResponse.json({ error: 'Scoring failed' }, { status: 502 });
   }
 

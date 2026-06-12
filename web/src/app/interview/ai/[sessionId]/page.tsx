@@ -4,28 +4,75 @@ import { useCallback, useEffect, useRef, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
-type Turn = { id: string; role: 'ai' | 'user'; content: string; audio_url: string | null };
+type Turn = { id: string; role: 'ai' | 'user'; content: string };
 type SessionMeta = { id: string; interview_format: string | null; prompt: string | null; started_at: string | null };
 
 const BG = '#0f1226';
 const PANEL_BG = '#1a1e3a';
+
+// ── Web Speech voice picker (Indian English first, then Google/Microsoft) ──
+function pickVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+  if (!voices.length) return null;
+  return (
+    voices.find(v => v.lang === 'en-IN') ||
+    voices.find(v => v.lang.startsWith('en-') && /Google|Microsoft/.test(v.name)) ||
+    voices.find(v => v.lang.startsWith('en-')) ||
+    null
+  );
+}
 
 export default function AiInterviewPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(params);
   const router = useRouter();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [meta, setMeta] = useState<SessionMeta | null>(null);
-  const [state, setState] = useState<'idle' | 'listening' | 'thinking' | 'speaking' | 'ended'>('idle');
+  const [state, setState] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [voicesReady, setVoicesReady] = useState(false);
 
-  const audioElRef = useRef<HTMLAudioElement | null>(null);
   const recRef = useRef<MediaRecorder | null>(null);
   const recChunksRef = useRef<BlobPart[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const startedAtRef = useRef<number>(Date.now());
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+
+  // Voice list loads asynchronously in most browsers.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const refresh = () => {
+      const v = pickVoice(window.speechSynthesis.getVoices());
+      if (v) { voiceRef.current = v; setVoicesReady(true); }
+    };
+    refresh();
+    window.speechSynthesis.onvoiceschanged = refresh;
+    return () => { window.speechSynthesis.onvoiceschanged = null; };
+  }, []);
+
+  // ── Speak a piece of text via Web Speech API ──────────────────────────
+  const speak = useCallback((text: string, onDone?: () => void) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text) {
+      onDone?.();
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.0;
+    u.pitch = 1.0;
+    if (voiceRef.current) u.voice = voiceRef.current;
+    u.onstart = () => setState('speaking');
+    u.onend = () => { setState('idle'); onDone?.(); };
+    u.onerror = () => { setState('idle'); onDone?.(); };
+    window.speechSynthesis.speak(u);
+  }, []);
+
+  const stopSpeaking = useCallback(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    setState('idle');
+  }, []);
 
   // Load session metadata + existing transcript on mount.
   useEffect(() => {
@@ -33,14 +80,15 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
     (async () => {
       const [{ data: s }, { data: t }] = await Promise.all([
         supabase.from('interview_sessions').select('id, interview_format, prompt, started_at').eq('id', sessionId).maybeSingle(),
-        supabase.from('interview_transcripts').select('id, role, content, audio_url').eq('session_id', sessionId).order('created_at', { ascending: true }),
+        supabase.from('interview_transcripts').select('id, role, content').eq('session_id', sessionId).order('created_at', { ascending: true }),
       ]);
       if (s) setMeta(s as unknown as SessionMeta);
       if (t) setTurns(t as unknown as Turn[]);
-      // Auto-play the opening AI turn if it has audio.
+      // Speak the opening AI turn (Phase 1) when voices are ready.
       const opening = (t ?? []).find(x => x.role === 'ai');
-      if (opening?.audio_url) {
-        playAudio(opening.audio_url);
+      if (opening) {
+        // Tiny delay so Chrome's voices list actually populates.
+        setTimeout(() => speak(opening.content as string), 300);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -58,31 +106,11 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
     if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
   }, [turns.length]);
 
-  // ── Audio playback (AI speaking) ─────────────────────────────────────
-  const playAudio = useCallback((url: string) => {
-    setState('speaking');
-    if (!audioElRef.current) audioElRef.current = new Audio();
-    const el = audioElRef.current;
-    el.src = url;
-    el.onended = () => setState('ended-check' as unknown as 'idle');
-    el.play().catch(() => { setState('idle'); });
-  }, []);
-
-  // Reset to idle when "speaking" → "ended-check" we briefly set above.
-  useEffect(() => {
-    if ((state as string) === 'ended-check') setState('idle');
-  }, [state]);
-
-  const stopAudio = () => {
-    audioElRef.current?.pause();
-    if (audioElRef.current) audioElRef.current.currentTime = 0;
-    setState('idle');
-  };
-
   // ── Recording (user speaking) ────────────────────────────────────────
   const startRecording = useCallback(async () => {
     if (state !== 'idle' && state !== 'speaking') return;
-    if (state === 'speaking') stopAudio();
+    // Hard stop the AI before listening (don't pick up our own voice).
+    stopSpeaking();
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
@@ -97,7 +125,7 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
       setError('Microphone unavailable. Check permissions.');
       setState('idle');
     }
-  }, [state]);
+  }, [state, stopSpeaking]);
 
   const stopRecording = useCallback(async () => {
     const mr = recRef.current;
@@ -109,7 +137,7 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
     recRef.current = null;
-    if (blob.size < 800) { setState('idle'); return; } // <0.5s of audio — likely a tap
+    if (blob.size < 800) { setState('idle'); return; } // <0.5s — likely a tap
 
     setState('thinking');
     try {
@@ -125,22 +153,19 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
       }
       setTurns(prev => [
         ...prev,
-        { id: `u-${Date.now()}`, role: 'user', content: data.userText, audio_url: null },
-        { id: `a-${Date.now()}`, role: 'ai', content: data.aiResponseText, audio_url: data.aiResponseAudioUrl },
+        { id: `u-${Date.now()}`, role: 'user', content: data.userText },
+        { id: `a-${Date.now()}`, role: 'ai', content: data.aiResponseText },
       ]);
-      if (data.aiResponseAudioUrl) {
-        playAudio(data.aiResponseAudioUrl);
-      } else {
-        setState('idle');
-      }
+      speak(data.aiResponseText);
       if (data.sessionShouldEnd) {
-        setTimeout(() => endInterview(), 1200);
+        // Give the AI a moment to finish its wrap-up turn before redirecting.
+        setTimeout(() => endInterview(), 4000);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Network error');
       setState('idle');
     }
-  }, [sessionId, playAudio]);
+  }, [sessionId, speak]);
 
   // Spacebar = hold-to-talk.
   useEffect(() => {
@@ -167,14 +192,14 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
   }, [startRecording, stopRecording]);
 
   const endInterview = useCallback(async () => {
+    stopSpeaking();
     setState('thinking');
     try {
       await fetch('/api/ai-interview/end', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId }) });
     } catch { /* result page will retry */ }
     router.push(`/interview/ai/${sessionId}/result`);
-  }, [sessionId, router]);
+  }, [sessionId, router, stopSpeaking]);
 
-  // Count question turns for sidebar.
   const aiQuestionCount = turns.filter(t => t.role === 'ai').length;
 
   return (
@@ -199,8 +224,13 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
           <div ref={transcriptRef} style={{ flex: 1, overflowY: 'auto', padding: '24px max(24px, 8vw)', display: 'flex', flexDirection: 'column', gap: 16 }}>
             {turns.length === 0 && <div style={{ color: '#8b91a8', fontSize: 13, textAlign: 'center', paddingTop: 80 }}>Preparing your interviewer…</div>}
             {turns.map((t) => (
-              <Bubble key={t.id} role={t.role} content={t.content} audioUrl={t.audio_url} onPlay={(u) => playAudio(u)} />
+              <Bubble key={t.id} role={t.role} content={t.content} onReplay={() => speak(t.content)} />
             ))}
+            {!voicesReady && (
+              <div style={{ fontSize: 11, color: '#8b91a8', textAlign: 'center' }}>
+                Loading browser voice… AI will speak once your browser finishes loading voices.
+              </div>
+            )}
           </div>
 
           {/* Status + Hold-to-Talk */}
@@ -229,7 +259,7 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
             </button>
             <span style={{ fontSize: 11, color: '#8b91a8' }}>Hold to talk · or press <kbd style={{ padding: '1px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.08)', fontFamily: 'inherit' }}>Space</kbd></span>
             {state === 'speaking' && (
-              <button onClick={stopAudio} style={{ height: 30, padding: '0 14px', borderRadius: 999, background: 'rgba(255,255,255,0.08)', color: '#e8ecff', border: '1px solid rgba(255,255,255,0.12)', fontSize: 12, cursor: 'pointer' }}>Stop AI</button>
+              <button onClick={stopSpeaking} style={{ height: 30, padding: '0 14px', borderRadius: 999, background: 'rgba(255,255,255,0.08)', color: '#e8ecff', border: '1px solid rgba(255,255,255,0.12)', fontSize: 12, cursor: 'pointer' }}>Stop AI</button>
             )}
             {error && <div style={{ fontSize: 12, color: '#f87171' }}>{error}</div>}
           </div>
@@ -259,17 +289,20 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
   );
 }
 
-function Bubble({ role, content, audioUrl, onPlay }: { role: 'ai' | 'user'; content: string; audioUrl: string | null; onPlay: (url: string) => void }) {
+function Bubble({ role, content, onReplay }: { role: 'ai' | 'user'; content: string; onReplay: () => void }) {
   const isAi = role === 'ai';
   return (
-    <div style={{ display: 'flex', justifyContent: isAi ? 'flex-start' : 'flex-end' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: isAi ? 'flex-start' : 'flex-end' }}>
       <div style={{ maxWidth: 640, padding: '12px 16px', borderRadius: isAi ? '14px 14px 14px 4px' : '14px 14px 4px 14px', background: isAi ? 'rgba(255,255,255,0.06)' : 'linear-gradient(135deg, #1B2B8E, #3D52CC)', color: '#fff', fontSize: 14, lineHeight: 1.55, position: 'relative' }}>
         {isAi && <div style={{ fontSize: 11, fontWeight: 700, color: '#b6bbcd', marginBottom: 4 }}>ELM AI Interviewer</div>}
         <div style={{ whiteSpace: 'pre-wrap' }}>{content}</div>
-        {audioUrl && (
-          <button onClick={() => onPlay(audioUrl)} title="Replay" style={{ position: 'absolute', top: 8, right: 8, width: 24, height: 24, borderRadius: 999, background: 'rgba(0,0,0,0.25)', color: '#fff', border: 'none', fontSize: 11, cursor: 'pointer' }}>▶</button>
+        {isAi && (
+          <button onClick={onReplay} title="Replay" style={{ position: 'absolute', top: 8, right: 8, width: 24, height: 24, borderRadius: 999, background: 'rgba(0,0,0,0.25)', color: '#fff', border: 'none', fontSize: 11, cursor: 'pointer' }}>▶</button>
         )}
       </div>
+      {isAi && (
+        <div style={{ fontSize: 10, color: '#8b91a8', marginTop: 3, marginLeft: 6 }}>Browser voice — free tier</div>
+      )}
     </div>
   );
 }

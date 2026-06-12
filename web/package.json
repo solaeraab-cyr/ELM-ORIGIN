@@ -8,7 +8,6 @@
     "start": "next start"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.104.1",
     "@excalidraw/excalidraw": "^0.18.1",
     "@livekit/components-react": "^2.9.21",
     "@livekit/components-styles": "^1.2.0",
@@ -16,10 +15,10 @@
     "@sentry/nextjs": "^10.53.1",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
+    "groq-sdk": "^1.2.1",
     "livekit-client": "^2.19.0",
     "livekit-server-sdk": "^2.15.3",
     "next": "16.2.6",
-    "openai": "^6.42.0",
     "posthog-js": "^1.373.5",
     "react": "19.2.4",
     "react-dom": "19.2.4",
