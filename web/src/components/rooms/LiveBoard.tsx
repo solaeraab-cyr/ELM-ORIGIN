@@ -45,20 +45,11 @@ function BoardSkeleton() {
   );
 }
 
-// Distribute participants evenly around 4 sides of the board.
-function distributeRing(participants: Participant[]) {
-  const n = participants.length;
-  if (n === 0) return { top: [], right: [], bottom: [], left: [] };
-  const topCount = Math.floor(n / 4);
-  const rightCount = Math.ceil((n - topCount) / 3);
-  const bottomCount = Math.ceil((n - topCount - rightCount) / 2);
-  const leftCount = n - topCount - rightCount - bottomCount;
-  return {
-    top: participants.slice(0, topCount),
-    right: participants.slice(topCount, topCount + rightCount),
-    bottom: participants.slice(topCount + rightCount, topCount + rightCount + bottomCount),
-    left: participants.slice(topCount + rightCount + bottomCount, topCount + rightCount + bottomCount + leftCount),
-  };
+// Deterministic ordering: every client lays the avatars out in the same
+// order so all 5 people in the room see the same arrangement around the
+// board. Sort by user_id ascending; position 0 → top, then clockwise.
+function sortParticipants(participants: Participant[]) {
+  return [...participants].sort((a, b) => a.user_id.localeCompare(b.user_id));
 }
 
 function Avatar({ p, isHolder, hasPen, onClick }: { p: Participant; isHolder: boolean; hasPen: boolean; onClick: () => void }) {
@@ -316,8 +307,7 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
     clearBoard();
   };
 
-  // Layout split
-  const sides = useMemo(() => distributeRing(participants), [participants]);
+  const sortedParticipants = useMemo(() => sortParticipants(participants), [participants]);
 
   return (
     // Claim a tall vertical slot so the board doesn't collapse to a strip
@@ -340,27 +330,41 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
           <CompactStrip participants={participants} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
           <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} />
         </div>
-      ) : participants.length >= 2 ? (
-        // Ring around the board — only when there are at least 2 people to
-        // distribute. Rows trimmed from 80→60 and cols from 80→60 so the
-        // central 1fr cell can host a centered square board.
-        <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '60px minmax(0, 1fr) 60px', gridTemplateRows: '60px 1fr 60px', gap: 10 }}>
-          <div /> {/* top-left corner */}
-          <RingRow items={sides.top} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
-          <div /> {/* top-right corner */}
-          <RingCol items={sides.left} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
-          {/* Flex wrapper centers the square within the 1fr cell. */}
-          <div style={{ gridColumn: '2 / 3', gridRow: '2 / 3', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 0 }}>
-            <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} square />
+      ) : sortedParticipants.length >= 3 ? (
+        // Angle-based ring around the board. For each participant index i in
+        // [0..n), place the avatar on the perimeter of the container at angle
+        // (π/2 − 2π·i/n) — that puts position 0 at the top and walks
+        // clockwise. With n=3: top + bottom-right + bottom-left (triangle).
+        // With n=4: top, right, bottom, left. Five-plus distribute evenly
+        // around all four sides. The list is pre-sorted by user_id, so the
+        // assignment is deterministic across clients.
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <div style={{ position: 'relative', width: 'min(720px, 75vh)', height: 'min(720px, 75vh)' }}>
+            {/* Board centered, occupies inner 70%. */}
+            <div style={{ position: 'absolute', inset: '15%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} square />
+            </div>
+            {sortedParticipants.map((p, i) => {
+              const angle = Math.PI / 2 - (i / sortedParticipants.length) * 2 * Math.PI;
+              const left = `${50 + 47 * Math.cos(angle)}%`;
+              const top = `${50 - 47 * Math.sin(angle)}%`;
+              return (
+                <div key={p.user_id} style={{ position: 'absolute', left, top, transform: 'translate(-50%, -50%)' }}>
+                  <Avatar
+                    p={p}
+                    isHolder={marker === p.user_id || (marker === 'all' && p.user_id === currentUserId)}
+                    hasPen={marker === p.user_id}
+                    onClick={() => giveMarker(p.user_id)}
+                  />
+                </div>
+              );
+            })}
           </div>
-          <RingCol items={sides.right} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
-          <div />
-          <RingRow items={sides.bottom} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
-          <div />
         </div>
       ) : (
-        // ≤1 participant on desktop: skip the ring (one avatar stranded on
-        // the edge looks lonely). Same centered square sizing as ring mode.
+        // 1 or 2 participants on desktop: ring would strand a lonely avatar
+        // on the edge — show just the centered square board. The "Drawing
+        // now" line in the footer still names who has the marker.
         <div style={{ flex: 1, minHeight: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
           <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} square />
         </div>
@@ -390,32 +394,6 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
           }}>Reset</button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function RingRow({ items, marker, giveMarker, currentUserId }: { items: Participant[]; marker: MarkerHolder; giveMarker: (id: MarkerHolder) => void; currentUserId: string }) {
-  return (
-    <div style={{ gridColumn: '2 / 3', display: 'flex', alignItems: 'center', justifyContent: 'space-around', gap: 10, paddingBottom: 14 }}>
-      {items.map(p => (
-        <Avatar key={p.user_id} p={p}
-          isHolder={marker === p.user_id || (marker === 'all' && p.user_id === currentUserId)}
-          hasPen={marker === p.user_id}
-          onClick={() => giveMarker(p.user_id)} />
-      ))}
-    </div>
-  );
-}
-
-function RingCol({ items, marker, giveMarker, currentUserId }: { items: Participant[]; marker: MarkerHolder; giveMarker: (id: MarkerHolder) => void; currentUserId: string }) {
-  return (
-    <div style={{ gridRow: '2 / 3', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-around', gap: 10, paddingRight: 14 }}>
-      {items.map(p => (
-        <Avatar key={p.user_id} p={p}
-          isHolder={marker === p.user_id || (marker === 'all' && p.user_id === currentUserId)}
-          hasPen={marker === p.user_id}
-          onClick={() => giveMarker(p.user_id)} />
-      ))}
     </div>
   );
 }
