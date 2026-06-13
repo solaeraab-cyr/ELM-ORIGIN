@@ -45,20 +45,31 @@ function BoardSkeleton() {
   );
 }
 
-// Distribute participants evenly around 4 sides of the board.
+// Distribute participants around the 4 sides of the board. Caller is
+// responsible for passing in a stably-sorted list so position N is the same
+// for every client. Position 0 = top, then right, bottom, left (clockwise).
 function distributeRing(participants: Participant[]) {
   const n = participants.length;
-  if (n === 0) return { top: [], right: [], bottom: [], left: [] };
-  const topCount = Math.floor(n / 4);
-  const rightCount = Math.ceil((n - topCount) / 3);
-  const bottomCount = Math.ceil((n - topCount - rightCount) / 2);
-  const leftCount = n - topCount - rightCount - bottomCount;
-  return {
-    top: participants.slice(0, topCount),
-    right: participants.slice(topCount, topCount + rightCount),
-    bottom: participants.slice(topCount + rightCount, topCount + rightCount + bottomCount),
-    left: participants.slice(topCount + rightCount + bottomCount, topCount + rightCount + bottomCount + leftCount),
-  };
+  const sides: { top: Participant[]; right: Participant[]; bottom: Participant[]; left: Participant[] } =
+    { top: [], right: [], bottom: [], left: [] };
+  if (n === 0) return sides;
+  if (n === 3) {
+    // Triangle: top, bottom-left, bottom-right around the board.
+    sides.top.push(participants[0]);
+    sides.bottom.push(participants[1], participants[2]);
+    return sides;
+  }
+  if (n === 4) {
+    sides.top.push(participants[0]);
+    sides.right.push(participants[1]);
+    sides.bottom.push(participants[2]);
+    sides.left.push(participants[3]);
+    return sides;
+  }
+  // 5+: round-robin clockwise across all four sides.
+  const order: ('top' | 'right' | 'bottom' | 'left')[] = ['top', 'right', 'bottom', 'left'];
+  for (let i = 0; i < n; i++) sides[order[i % 4]].push(participants[i]);
+  return sides;
 }
 
 function Avatar({ p, isHolder, hasPen, onClick }: { p: Participant; isHolder: boolean; hasPen: boolean; onClick: () => void }) {
@@ -161,14 +172,22 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
-  const isCompact = w < 900 || participants.length > 16;
+  // Sort by stable key (user_id ascending) so every client lays out the
+  // ring identically — participant with lowest id always lands at position 0.
+  const sortedParticipants = useMemo(
+    () => [...participants].sort((a, b) => (a.user_id < b.user_id ? -1 : a.user_id > b.user_id ? 1 : 0)),
+    [participants],
+  );
+
+  const isCompact = w < 900 || sortedParticipants.length > 16;
+  const showRing = sortedParticipants.length >= 3;
 
   const canDraw = marker === 'all' || marker === currentUserId;
   const drawerName = useMemo(() => {
     if (marker === 'all') return 'everyone';
-    const p = participants.find(x => x.user_id === marker);
+    const p = sortedParticipants.find(x => x.user_id === marker);
     return p?.name ?? 'someone';
-  }, [marker, participants]);
+  }, [marker, sortedParticipants]);
 
   // ── Broadcast channels ──────────────────────────────────────────────────────
   const channel = `liveboard:${roomId}`;
@@ -316,8 +335,8 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
     clearBoard();
   };
 
-  // Layout split
-  const sides = useMemo(() => distributeRing(participants), [participants]);
+  // Layout split — fed the sorted list so positions are identical across clients.
+  const sides = useMemo(() => distributeRing(sortedParticipants), [sortedParticipants]);
 
   return (
     // Claim a tall vertical slot so the board doesn't collapse to a strip
@@ -337,10 +356,10 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
       {/* Ring + board */}
       {isCompact ? (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <CompactStrip participants={participants} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
+          <CompactStrip participants={sortedParticipants} marker={marker} giveMarker={giveMarker} currentUserId={currentUserId} />
           <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} />
         </div>
-      ) : participants.length >= 2 ? (
+      ) : showRing ? (
         // Ring around the board — only when there are at least 2 people to
         // distribute. Rows trimmed from 80→60 and cols from 80→60 so the
         // central 1fr cell can host a centered square board.
@@ -359,8 +378,8 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
           <div />
         </div>
       ) : (
-        // ≤1 participant on desktop: skip the ring (one avatar stranded on
-        // the edge looks lonely). Same centered square sizing as ring mode.
+        // <3 participants on desktop: board only — a 1- or 2-avatar ring
+        // looks lonely. Same centered square sizing as ring mode.
         <div style={{ flex: 1, minHeight: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
           <BoardFrame setApi={setApi} canDraw={canDraw} onChange={handleChange} onPointer={handlePointer} square />
         </div>
@@ -369,7 +388,7 @@ export default function LiveBoard({ roomId, currentUserId, currentUserName, part
       {/* Footer: drawing-now + controls */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-          Drawing now: <strong style={{ color: 'var(--text-primary)' }}>{participants.length === 0 ? 'no one yet' : drawerName}</strong>
+          Drawing now: <strong style={{ color: 'var(--text-primary)' }}>{sortedParticipants.length === 0 ? 'no one yet' : drawerName}</strong>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => giveMarker('all')} style={{
