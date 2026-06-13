@@ -10,8 +10,8 @@ type SessionMeta = { id: string; interview_format: string | null; prompt: string
 const BG = '#0f1226';
 const PANEL_BG = '#1a1e3a';
 
-// ── Web Speech voice picker (Indian English first, then Google/Microsoft) ──
-function pickVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+// ── Browser-TTS fallback voice picker (only used if Edge TTS fails) ────────
+function pickBrowserVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
   if (!voices.length) return null;
   return (
     voices.find(v => v.lang === 'en-IN') ||
@@ -30,29 +30,31 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [voicesReady, setVoicesReady] = useState(false);
 
   const recRef = useRef<MediaRecorder | null>(null);
   const recChunksRef = useRef<BlobPart[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const startedAtRef = useRef<number>(Date.now());
   const transcriptRef = useRef<HTMLDivElement | null>(null);
-  const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const currentUrlRef = useRef<string | null>(null);
+  const playTokenRef = useRef(0);
+  const browserVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
 
-  // Voice list loads asynchronously in most browsers.
+  // Browser voice list (fallback only) — loads asynchronously.
   useEffect(() => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     const refresh = () => {
-      const v = pickVoice(window.speechSynthesis.getVoices());
-      if (v) { voiceRef.current = v; setVoicesReady(true); }
+      const v = pickBrowserVoice(window.speechSynthesis.getVoices());
+      if (v) browserVoiceRef.current = v;
     };
     refresh();
     window.speechSynthesis.onvoiceschanged = refresh;
     return () => { window.speechSynthesis.onvoiceschanged = null; };
   }, []);
 
-  // ── Speak a piece of text via Web Speech API ──────────────────────────
-  const speak = useCallback((text: string, onDone?: () => void) => {
+  // ── Browser TTS fallback (only if Edge TTS fails) ─────────────────────
+  const speakBrowser = useCallback((text: string, onDone?: () => void) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text) {
       onDone?.();
       return;
@@ -61,18 +63,72 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 1.0;
     u.pitch = 1.0;
-    if (voiceRef.current) u.voice = voiceRef.current;
+    if (browserVoiceRef.current) u.voice = browserVoiceRef.current;
     u.onstart = () => setState('speaking');
     u.onend = () => { setState('idle'); onDone?.(); };
     u.onerror = () => { setState('idle'); onDone?.(); };
     window.speechSynthesis.speak(u);
   }, []);
 
+  // ── Stop any in-flight playback (Edge audio or browser TTS) ──────────
   const stopSpeaking = useCallback(() => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
+    playTokenRef.current += 1;
+    const a = audioRef.current;
+    if (a) {
+      try { a.pause(); } catch { /* noop */ }
+      a.src = '';
+      audioRef.current = null;
+    }
+    if (currentUrlRef.current) {
+      URL.revokeObjectURL(currentUrlRef.current);
+      currentUrlRef.current = null;
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
     setState('idle');
   }, []);
+
+  // ── Speak a piece of text via Edge TTS, fall back to browser TTS ──────
+  const speak = useCallback(async (text: string, onDone?: () => void) => {
+    if (!text) { onDone?.(); return; }
+    stopSpeaking();
+    const token = ++playTokenRef.current;
+    try {
+      const res = await fetch('/api/ai-interview/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error(`speak ${res.status}`);
+      const blob = await res.blob();
+      if (token !== playTokenRef.current) return; // superseded/cancelled
+      const url = URL.createObjectURL(blob);
+      currentUrlRef.current = url;
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      const cleanup = () => {
+        if (currentUrlRef.current === url) {
+          URL.revokeObjectURL(url);
+          currentUrlRef.current = null;
+        }
+        if (audioRef.current === audio) audioRef.current = null;
+      };
+      audio.onplay = () => { if (token === playTokenRef.current) setState('speaking'); };
+      audio.onended = () => { cleanup(); if (token === playTokenRef.current) { setState('idle'); onDone?.(); } };
+      audio.onerror = () => {
+        cleanup();
+        if (token !== playTokenRef.current) return;
+        console.warn('[ai-interview] edge audio playback failed, falling back to browser TTS');
+        speakBrowser(text, onDone);
+      };
+      await audio.play();
+    } catch (err) {
+      if (token !== playTokenRef.current) return;
+      console.warn('[ai-interview] edge-tts unavailable, falling back to browser TTS:', err);
+      speakBrowser(text, onDone);
+    }
+  }, [speakBrowser, stopSpeaking]);
 
   // Load session metadata + existing transcript on mount.
   useEffect(() => {
@@ -226,11 +282,6 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
             {turns.map((t) => (
               <Bubble key={t.id} role={t.role} content={t.content} onReplay={() => speak(t.content)} />
             ))}
-            {!voicesReady && (
-              <div style={{ fontSize: 11, color: '#8b91a8', textAlign: 'center' }}>
-                Loading browser voice… AI will speak once your browser finishes loading voices.
-              </div>
-            )}
           </div>
 
           {/* Status + Hold-to-Talk */}
@@ -300,9 +351,6 @@ function Bubble({ role, content, onReplay }: { role: 'ai' | 'user'; content: str
           <button onClick={onReplay} title="Replay" style={{ position: 'absolute', top: 8, right: 8, width: 24, height: 24, borderRadius: 999, background: 'rgba(0,0,0,0.25)', color: '#fff', border: 'none', fontSize: 11, cursor: 'pointer' }}>▶</button>
         )}
       </div>
-      {isAi && (
-        <div style={{ fontSize: 10, color: '#8b91a8', marginTop: 3, marginLeft: 6 }}>Browser voice — free tier</div>
-      )}
     </div>
   );
 }
