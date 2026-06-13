@@ -8,6 +8,7 @@ import type { ChatCompletion, ChatCompletionCreateParamsNonStreaming } from 'gro
 export function aiInterviewAvailable(): { ok: boolean; missing: string[] } {
   const missing: string[] = [];
   if (!process.env.GROQ_API_KEY) missing.push('GROQ_API_KEY');
+  if (!process.env.SARVAM_API_KEY) missing.push('SARVAM_API_KEY');
   return { ok: missing.length === 0, missing };
 }
 
