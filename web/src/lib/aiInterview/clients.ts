@@ -3,6 +3,7 @@
 // no audio storage, no third-party voice billing.
 
 import Groq from 'groq-sdk';
+import type { ChatCompletion, ChatCompletionCreateParamsNonStreaming } from 'groq-sdk/resources/chat/completions';
 
 export function aiInterviewAvailable(): { ok: boolean; missing: string[] } {
   const missing: string[] = [];
@@ -17,7 +18,19 @@ function groq() {
 }
 
 const STT_MODEL = 'whisper-large-v3';
-const LLM_MODEL = 'llama-3.3-70b-versatile';
+const LLM_MODEL = 'openai/gpt-oss-120b';
+const LLM_MODEL_FALLBACK = 'llama-3.3-70b-versatile';
+
+async function chatWithFallback(
+  params: Omit<ChatCompletionCreateParamsNonStreaming, 'model'>,
+): Promise<ChatCompletion> {
+  try {
+    return await groq().chat.completions.create({ ...params, model: LLM_MODEL });
+  } catch (err) {
+    console.warn(`[aiInterview] primary model ${LLM_MODEL} failed, falling back to ${LLM_MODEL_FALLBACK}:`, err);
+    return await groq().chat.completions.create({ ...params, model: LLM_MODEL_FALLBACK });
+  }
+}
 
 // ── STT ─────────────────────────────────────────────────────────────────────
 export async function transcribeWebmAudio(audioBlob: Blob): Promise<string> {
@@ -45,8 +58,7 @@ export async function nextInterviewerTurn(input: LlmTurnInput): Promise<{ reply:
       content: t.content,
     })),
   ];
-  const res = await groq().chat.completions.create({
-    model: LLM_MODEL,
+  const res = await chatWithFallback({
     messages,
     max_tokens: 400,
     response_format: { type: 'json_object' },
@@ -67,8 +79,7 @@ export async function nextInterviewerTurn(input: LlmTurnInput): Promise<{ reply:
 
 // ── LLM: post-interview scorecard (strict JSON) ─────────────────────────────
 export async function generateScorecard(systemPrompt: string, transcript: string): Promise<Record<string, unknown>> {
-  const res = await groq().chat.completions.create({
-    model: LLM_MODEL,
+  const res = await chatWithFallback({
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: transcript },

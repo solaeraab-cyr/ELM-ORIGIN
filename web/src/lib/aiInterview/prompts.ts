@@ -3,6 +3,8 @@
 // (introduction). Phase 2 personalisation happens automatically because
 // Claude is given the full transcript on every subsequent turn.
 
+import { UPSC_CURRENT_AFFAIRS } from './upscCurrentAffairs';
+
 export type InterviewFormat =
   | 'HR / Behavioral'
   | 'Technical Coding'
@@ -80,9 +82,22 @@ function styleFor(format: string): string {
   return (STYLE_BLOCKS as Record<string, string>)[format] ?? STYLE_BLOCKS['General Mock Interview']!;
 }
 
+function upscCurrentAffairsBlock(): string {
+  if (UPSC_CURRENT_AFFAIRS.length === 0) return '';
+  const bullets = UPSC_CURRENT_AFFAIRS.map(item => `- ${item}`).join('\n');
+  return [
+    'Current affairs context (recent Indian events, past ~60 days):',
+    bullets,
+    'Use these recent events as the basis for any current affairs questions. Do not ask about events from before this list.',
+    '',
+  ].join('\n');
+}
+
 export function systemPromptFor(opts: { format: string; topic: string; subject?: string | null }): string {
   const subject = opts.subject ? ` preparing for ${opts.subject}` : '';
+  const upscBlock = opts.format === 'UPSC Personality Test' ? upscCurrentAffairsBlock() : '';
   return [
+    upscBlock,
     `You are an interviewer conducting a "${opts.format}" mock interview for a candidate${subject}${opts.topic ? ` focused on "${opts.topic}"` : ''}.`,
     '',
     'Stay in character throughout: senior, calm, observant, brief. Speak in first person to the candidate. Never break character.',
