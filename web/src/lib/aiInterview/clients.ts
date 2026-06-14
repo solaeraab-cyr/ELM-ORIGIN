@@ -3,7 +3,13 @@
 // no audio storage, no third-party voice billing.
 
 import Groq from 'groq-sdk';
-import type { ChatCompletion, ChatCompletionCreateParamsNonStreaming } from 'groq-sdk/resources/chat/completions';
+import type {
+  ChatCompletion,
+  ChatCompletionChunk,
+  ChatCompletionCreateParamsNonStreaming,
+  ChatCompletionMessageParam,
+} from 'groq-sdk/resources/chat/completions';
+import type { Stream } from 'groq-sdk/lib/streaming';
 
 export function aiInterviewAvailable(): { ok: boolean; missing: string[] } {
   const missing: string[] = [];
@@ -76,6 +82,68 @@ export async function nextInterviewerTurn(input: LlmTurnInput): Promise<{ reply:
     reply: String(parsed.reply ?? text ?? ''),
     shouldEnd: !!parsed.shouldEnd,
   };
+}
+
+// ── LLM: streaming per-turn reply (plain text tokens) ──────────────────────
+// Returns an async iterable of token strings. Uses the same primary→fallback
+// model strategy as chatWithFallback.
+export async function* streamInterviewerTurn(
+  systemPrompt: string,
+  history: { role: 'ai' | 'user'; content: string }[],
+): AsyncGenerator<string, void, void> {
+  const messages: ChatCompletionMessageParam[] = [
+    { role: 'system', content: systemPrompt },
+    ...history.map(t => ({
+      role: (t.role === 'ai' ? 'assistant' : 'user') as 'assistant' | 'user',
+      content: t.content,
+    })),
+  ];
+  let stream: Stream<ChatCompletionChunk>;
+  try {
+    stream = await groq().chat.completions.create({
+      model: LLM_MODEL,
+      messages,
+      max_tokens: 400,
+      stream: true,
+    });
+  } catch (err) {
+    console.warn(`[aiInterview] stream primary ${LLM_MODEL} failed, falling back to ${LLM_MODEL_FALLBACK}:`, err);
+    stream = await groq().chat.completions.create({
+      model: LLM_MODEL_FALLBACK,
+      messages,
+      max_tokens: 400,
+      stream: true,
+    });
+  }
+  for await (const chunk of stream) {
+    const token = chunk.choices?.[0]?.delta?.content;
+    if (token) yield token;
+  }
+}
+
+// ── TTS: Sarvam Bulbul:v3 → base64 WAV string. Throws on failure. ──────────
+export async function sarvamSynthesize(text: string): Promise<string> {
+  const key = process.env.SARVAM_API_KEY;
+  if (!key) throw new Error('SARVAM_API_KEY missing');
+  const res = await fetch('https://api.sarvam.ai/text-to-speech', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'api-subscription-key': key },
+    body: JSON.stringify({
+      text: text.slice(0, 2500),
+      target_language_code: 'en-IN',
+      model: 'bulbul:v3',
+      speaker: 'priya',
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`sarvam ${res.status}: ${body.slice(0, 300)}`);
+  }
+  const data = await res.json() as { audios?: unknown };
+  const audios = Array.isArray(data.audios) ? data.audios : [];
+  const first = typeof audios[0] === 'string' ? audios[0] : '';
+  if (!first) throw new Error('sarvam returned empty audios');
+  return first;
 }
 
 // ── LLM: post-interview scorecard (strict JSON) ─────────────────────────────

@@ -12,6 +12,7 @@
     "@livekit/components-react": "^2.9.21",
     "@livekit/components-styles": "^1.2.0",
     "@livekit/krisp-noise-filter": "^0.3.4",
+    "@ricky0123/vad-web": "^0.0.30",
     "@sentry/nextjs": "^10.53.1",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
