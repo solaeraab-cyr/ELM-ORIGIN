@@ -11,6 +11,13 @@ type UiState = 'idle' | 'connecting' | 'speaking' | 'listening' | 'thinking' | '
 const BG = '#0f1226';
 const PANEL_BG = '#1a1e3a';
 
+// 45-byte mono 8 kHz PCM silent WAV (1 sample). Played synchronously inside
+// the Start-Interview click so the browser issues an audio-activation token
+// to the origin; subsequent .play() calls from async paths (Sarvam fetch,
+// VAD speech-end callback) then bypass the autoplay block.
+const SILENT_WAV_DATA_URL =
+  'data:audio/wav;base64,UklGRiUAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQEAAACA';
+
 // Browser-TTS fallback picker — only used if /api/ai-interview/speak fails.
 function pickBrowserVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
   if (!voices.length) return null;
@@ -42,12 +49,17 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
   const [micDenied, setMicDenied] = useState(false);
   const [tapRecording, setTapRecording] = useState(false);
 
-  // Audio playback queue (sentence index → blob) so we can play sentences as
-  // they stream in even though Sarvam's TTS resolves out of order.
-  const audioBufRef = useRef<Map<number, Blob>>(new Map());
+  // Audio playback queue (sentence index → blob + text). Text travels with
+  // the blob so we can fall back to browser-TTS for the exact sentence if
+  // the Sarvam-WAV path can't play it.
+  const audioBufRef = useRef<Map<number, { blob: Blob; text: string }>>(new Map());
+  const sentenceTextsRef = useRef<Map<number, string>>(new Map());
   const nextPlayIdxRef = useRef(0);
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  // A single <audio> element, primed inside the Start click so the origin
+  // has audio-activation; we reuse it for every sentence by swapping `src`.
+  const primedAudioRef = useRef<HTMLAudioElement | null>(null);
   const currentUrlRef = useRef<string | null>(null);
+  const playingRef = useRef(false);
   const streamDoneRef = useRef(false);
   const pendingSessionEndRef = useRef(false);
 
@@ -76,60 +88,72 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
     return () => { window.speechSynthesis.onvoiceschanged = null; };
   }, []);
 
-  const speakBrowser = useCallback((text: string, reason: string) => {
+  const speakBrowser = useCallback((text: string, reason: string, onDone?: () => void) => {
     console.warn(`[TTS fallback] using browser speechSynthesis — reason: ${reason}`);
-    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text) return;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !text) {
+      onDone?.();
+      return;
+    }
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     if (browserVoiceRef.current) u.voice = browserVoiceRef.current;
     u.onstart = () => setState('speaking');
-    u.onend = () => onSentenceFinished();
-    u.onerror = () => onSentenceFinished();
+    u.onend = () => onDone?.();
+    u.onerror = () => onDone?.();
     window.speechSynthesis.speak(u);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Audio queue drain ────────────────────────────────────────────────
   const drainAudioQueue = useCallback(() => {
-    if (currentAudioRef.current) return;
-    const blob = audioBufRef.current.get(nextPlayIdxRef.current);
-    if (!blob) {
+    if (playingRef.current) return;
+    const idx = nextPlayIdxRef.current;
+    const entry = audioBufRef.current.get(idx);
+    if (!entry) {
       if (streamDoneRef.current && audioBufRef.current.size === 0) {
         onAllAudioFinished();
       }
       return;
     }
-    audioBufRef.current.delete(nextPlayIdxRef.current);
+    audioBufRef.current.delete(idx);
+    const { blob, text } = entry;
+    playingRef.current = true;
+    const advance = () => {
+      playingRef.current = false;
+      nextPlayIdxRef.current = idx + 1;
+      drainAudioQueue();
+    };
+
+    if (!blob || blob.size === 0) {
+      console.warn(`[TTS fallback] empty audio buffer for sentence idx=${idx}: "${text.slice(0, 60)}"`);
+      speakBrowser(text, `empty buffer idx=${idx}`, advance);
+      return;
+    }
+
+    const audio = primedAudioRef.current ?? new Audio();
+    primedAudioRef.current = audio;
     const url = URL.createObjectURL(blob);
     currentUrlRef.current = url;
-    const a = new Audio(url);
-    currentAudioRef.current = a;
+    audio.src = url;
     setState('speaking');
     const cleanup = () => {
       if (currentUrlRef.current === url) {
         URL.revokeObjectURL(url);
         currentUrlRef.current = null;
       }
-      if (currentAudioRef.current === a) currentAudioRef.current = null;
     };
-    a.onended = () => { cleanup(); nextPlayIdxRef.current += 1; drainAudioQueue(); };
-    a.onerror = () => {
+    audio.onended = () => { cleanup(); advance(); };
+    audio.onerror = (e) => {
       cleanup();
-      console.warn('[TTS fallback] <audio> playback failed for sentence', nextPlayIdxRef.current);
-      nextPlayIdxRef.current += 1;
-      drainAudioQueue();
+      console.warn(`[TTS fallback] <audio> element error idx=${idx}:`, e);
+      speakBrowser(text, `audio element error idx=${idx}`, advance);
     };
-    a.play().catch(err => {
-      console.warn('[TTS fallback] audio.play() rejected:', err);
+    audio.play().catch(err => {
       cleanup();
-      nextPlayIdxRef.current += 1;
-      drainAudioQueue();
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[TTS fallback] audio.play() rejected idx=${idx}: ${msg}`);
+      speakBrowser(text, `autoplay blocked idx=${idx}: ${msg}`, advance);
     });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const onSentenceFinished = useCallback(() => {
-    nextPlayIdxRef.current += 1;
-    drainAudioQueue();
-  }, [drainAudioQueue]);
+  }, [speakBrowser]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onAllAudioFinished = useCallback(() => {
     if (pendingSessionEndRef.current) {
@@ -149,15 +173,20 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
   }, [micDenied]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopAllAudio = useCallback(() => {
-    const a = currentAudioRef.current;
-    if (a) { try { a.pause(); } catch { /* noop */ } currentAudioRef.current = null; }
+    const a = primedAudioRef.current;
+    if (a) {
+      try { a.pause(); } catch { /* noop */ }
+      try { a.removeAttribute('src'); a.load(); } catch { /* noop */ }
+    }
     if (currentUrlRef.current) {
       URL.revokeObjectURL(currentUrlRef.current);
       currentUrlRef.current = null;
     }
     audioBufRef.current.clear();
+    sentenceTextsRef.current.clear();
     nextPlayIdxRef.current = 0;
     streamDoneRef.current = false;
+    playingRef.current = false;
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
@@ -169,22 +198,35 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
   const speakOneShot = useCallback(async (text: string) => {
     if (!text) { onAllAudioFinished(); return; }
     audioBufRef.current.clear();
+    sentenceTextsRef.current.clear();
     nextPlayIdxRef.current = 0;
     streamDoneRef.current = true; // single sentence → drain decides end
+    let res: Response;
     try {
-      const res = await fetch('/api/ai-interview/speak', {
+      res = await fetch('/api/ai-interview/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       });
-      if (!res.ok) throw new Error(`speak ${res.status}`);
-      const blob = await res.blob();
-      audioBufRef.current.set(0, blob);
-      drainAudioQueue();
     } catch (err) {
-      console.warn('[TTS fallback] /speak unavailable:', err);
-      speakBrowser(text, `speak fetch failed: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[TTS fallback] sarvam fetch failed idx=0: ${msg}`);
+      speakBrowser(text, `sarvam fetch failed idx=0: ${msg}`, onAllAudioFinished);
+      return;
     }
+    if (!res.ok) {
+      console.warn(`[TTS fallback] sarvam ${res.status} idx=0 (one-shot)`);
+      speakBrowser(text, `sarvam ${res.status} idx=0`, onAllAudioFinished);
+      return;
+    }
+    const blob = await res.blob();
+    if (!blob || blob.size === 0) {
+      console.warn(`[TTS fallback] empty audio buffer for sentence idx=0: "${text.slice(0, 60)}"`);
+      speakBrowser(text, `empty buffer idx=0`, onAllAudioFinished);
+      return;
+    }
+    audioBufRef.current.set(0, { blob, text });
+    drainAudioQueue();
   }, [drainAudioQueue, onAllAudioFinished, speakBrowser]);
 
   // ── Send a recorded user turn through the streaming /respond SSE ─────
@@ -228,7 +270,9 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
         if (text) setTurns(prev => [...prev, { id: `u-${Date.now()}`, role: 'user', content: text }]);
       } else if (event === 'text') {
         const sentence = String(payload.sentence || '');
+        const idx = typeof payload.index === 'number' ? payload.index : -1;
         if (!sentence) return;
+        if (idx >= 0) sentenceTextsRef.current.set(idx, sentence);
         aiTurnContent = aiTurnContent ? `${aiTurnContent} ${sentence}` : sentence;
         if (!aiTurnId) {
           aiTurnId = `a-${Date.now()}`;
@@ -243,22 +287,28 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
         const idx = typeof payload.index === 'number' ? payload.index : nextPlayIdxRef.current;
         const b64 = String(payload.audioBase64 || '');
         const mime = String(payload.mime || 'audio/wav');
-        if (!b64) return;
+        const text = sentenceTextsRef.current.get(idx) || '';
+        if (!b64) {
+          console.warn(`[TTS fallback] empty audio buffer for sentence idx=${idx}: "${text.slice(0, 60)}"`);
+          audioBufRef.current.set(idx, { blob: new Blob(), text });
+          drainAudioQueue();
+          return;
+        }
         const audioBlob = decodeBase64ToBlob(b64, mime);
-        audioBufRef.current.set(idx, audioBlob);
+        audioBufRef.current.set(idx, { blob: audioBlob, text });
         drainAudioQueue();
       } else if (event === 'error') {
         const stage = String(payload.stage || '');
         const message = String(payload.message || '');
-        console.warn(`[TTS fallback] stream error in stage=${stage}: ${message}`);
         if (stage === 'tts') {
-          // Single-sentence TTS failed: skip that index and let the queue drain.
           const idx = typeof payload.index === 'number' ? payload.index : nextPlayIdxRef.current;
-          if (idx === nextPlayIdxRef.current && !currentAudioRef.current) {
-            nextPlayIdxRef.current += 1;
-            drainAudioQueue();
-          }
+          const text = sentenceTextsRef.current.get(idx) || '';
+          console.warn(`[TTS fallback] sarvam tts stream error idx=${idx}: ${message}`);
+          // Empty blob makes drainAudioQueue route this sentence to browser TTS.
+          audioBufRef.current.set(idx, { blob: new Blob(), text });
+          drainAudioQueue();
         } else {
+          console.warn(`[TTS fallback] stream error stage=${stage}: ${message}`);
           setError(`${stage}: ${message}`);
         }
       } else if (event === 'done') {
@@ -321,6 +371,23 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
   }, [sendTurn, state]);
 
   const handleStart = useCallback(async () => {
+    // CRITICAL: do this SYNCHRONOUSLY inside the gesture handler, before any
+    // await. It earns the audio-activation token from the browser; all later
+    // .play() calls from async paths (Sarvam fetch, VAD callback) succeed.
+    try {
+      const primed = primedAudioRef.current ?? new Audio(SILENT_WAV_DATA_URL);
+      primedAudioRef.current = primed;
+      primed.src = SILENT_WAV_DATA_URL;
+      const p = primed.play();
+      if (p && typeof p.catch === 'function') {
+        p.catch(err => {
+          console.warn(`[TTS fallback] primed audio.play() rejected: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
+    } catch (err) {
+      console.warn(`[TTS fallback] primed audio init failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
     setError(null);
     setState('connecting');
     setStarted(true);
@@ -340,7 +407,7 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
     if (state === 'muted') {
       try { await vadRef.current.start(); } catch { /* noop */ }
       vadEnabledRef.current = true;
-      setState(currentAudioRef.current ? 'speaking' : 'listening');
+      setState(playingRef.current ? 'speaking' : 'listening');
     } else {
       try { await vadRef.current.pause(); } catch { /* noop */ }
       vadEnabledRef.current = false;
