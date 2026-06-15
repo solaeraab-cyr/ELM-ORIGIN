@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline' *.vercel.com *.gstatic.com; " +
               "font-src 'self' *.vercel.com *.gstatic.com *.public.blob.vercel-storage.com data:; " +
               "img-src 'self' data: https:; " +
+              "media-src 'self' data: blob: mediastream:; " +
+              "worker-src 'self' blob:; " +
+              "child-src 'self' blob:; " +
               "connect-src 'self' https: wss://*.supabase.co wss://mkwvfhxymjttmvmavfiy.supabase.co wss://*.livekit.cloud wss://*.production.livekit.cloud; " +
               "frame-ancestors 'self';",
           },

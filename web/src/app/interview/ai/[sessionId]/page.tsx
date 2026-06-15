@@ -347,6 +347,10 @@ export default function AiInterviewPage({ params }: { params: Promise<{ sessionI
       const mod = await import('@ricky0123/vad-web');
       const { MicVAD, utils } = mod;
       const vad = await MicVAD.new({
+        // Self-hosted assets — copied to /public/vad/ by scripts/copy-vad-assets.mjs.
+        // Avoids CDN dependency and matches the site's strict CSP.
+        baseAssetPath: '/vad/',
+        onnxWASMBasePath: '/vad/',
         onSpeechStart: () => {
           if (state !== 'speaking') setState('listening');
         },
